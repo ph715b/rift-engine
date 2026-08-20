@@ -457,7 +457,7 @@ Re-measure rather than trusting this; it is one `coverageBySet` call, and this
 document's own advice has been right every time it was ignored.
 
 ```
-VEN: needing=176  implemented=173 unimplemented=3    partial=3      (2026-08-19, after the alias fix, eighteen card waves; ALL SEVEN LEGENDS and ALL NINE dual-domain SPELLS are in, and 3 of the 6 partials. What is left is VEN-074, VEN-110 and VEN-069)
+VEN: needing=176  implemented=175 unimplemented=1    partial=1      (2026-08-19, after the alias fix, nineteen card waves; ALL SEVEN LEGENDS, ALL NINE dual-domain SPELLS and 5 of the 6 partials are in. ONE card is left in the set: VEN-069 Mel, Newly Awakened)
 ```
 
 **Phases 0–2 are done except for one upstream gate.** The set is landed, all
@@ -487,7 +487,7 @@ Fixed by dropping the filter (2026-08-16). Three of the ten are RE-TEMPLATED —
 same card, Vendetta's newer wording — so the alias test now asserts type and every
 printed number unconditionally, and quotes both texts for those three by name.
 
-**What is left is ORDINARY CARD WORK — 3 cards, which are the last 3 PARTIALS, and the "no subsystems" claim
+**What is left is ORDINARY CARD WORK — ONE card, the last PARTIAL, and the "no subsystems" claim
 has now been wrong twice.** Order alone needed rule 477's layer order (an
 assignment of base Might, distinct from every pump in the pool), an amount-based
 damage prevention pool, and owner/domain narrowings on `unitOrGear` targeting
@@ -575,6 +575,64 @@ opponent's deck and hand, 108.7.c) or withholds the card's main use (naming a
 spell you have not seen). Pinned as an invertible assertion in
 `ven-order-wave1.test.ts`. The restriction half is easy and is not the blocker —
 it is Lilting Lullaby's shape, a predicate in `board-restrictions.ts`.
+
+### Partials, wave 2 — done 2026-08-19 (the two compound [Empower] costs)
+
+VEN-074 Legion Marauder, 110 Mel, Defiant Soul. VEN 173 -> 175. Tests in
+`test/ven-empower-compound.test.ts` (20); **12 mutants, 11 killed, 1
+measured-redundant** — after THREE of them had to be rewritten for reporting the
+wrong thing.
+
+**Both refusal notes named their blocker exactly right, and neither was closed
+the way the note assumed.**
+
+| card | the note said | what actually closed it |
+|---|---|---|
+| Legion Marauder | "[1] or [Body]" — "either half alone is cheaper than the choice and both together are dearer, so neither is the card" | Both still true, so it is NEITHER: two `AbilityMode`s, which have priced modes separately since Jax - Grandmaster At Arms. The player picks |
+| Mel, Defiant Soul | "Discard a spell" — "`ActivationCost.discard` is a COUNT of any cards… It needs a narrowed discard field" | `discardKind`, added in ANOTHER SET for Sky Cruiser's "Discard a GEAR". The blocker was closed by a card nobody connected to this one |
+
+**Mel's cost alone would have been a coverage LIE**, and catching that is the
+wave's real content. Parsing her Empower cost registers a generated ability under
+her defId, so `isCardImplemented` said yes the moment the cost read — while her
+second sentence ("when I become [Empowered], banish an enemy unit at a
+battlefield with 3 [Might] or less") did nothing at all. The half-written-card
+shape, caught by checking coverage against the printed text rather than trusting
+it.
+
+That clause is a new `becameEmpowered` GameEvent fired from `empowerPermanent` —
+the single WRITER of the status — so she triggers however she was empowered
+rather than only off her own ability. HELD, unlike the Legend hook on the line
+above it, because it names a TARGET: a question parked inline would be asked in
+the middle of whatever resolution did the empowering.
+
+**FIVE premise pins flipped**, more than any wave this set, and every one was
+repaired rather than weakened. Two were coverage claims ("Body's one PARTIAL",
+"Chaos is finished apart from its one PARTIAL") and were INVERTED and widened to
+the domain. Two were parser refusals, one inverted and one kept for the half still
+true. The fifth was the census.
+
+**One of them had predicted its own retirement in as many words**:
+`empower-keyword.test.ts` asserted `stillUnreadable.length > 0` with the message
+"every [Empower] cost now parses — retire this half of the test". It emptied, so
+an emptied loop was replaced by the positive sweep — every card printing
+`[Empower]` now has a readable cost — plus a named list of the ones still partial
+for OTHER reasons, so the sweep cannot be misread as "every Empower card is done".
+
+**Three mutants reported the wrong thing before they reported anything.** Two
+injected a line ABOVE the assignment they meant to break, so the original ran
+straight after and the mutant was a no-op that still passed the `// MUT` marker
+check. A third had already done the same in wave 1. The lesson is narrow and
+worth keeping: **a marker assertion proves the edit landed, not that it changed
+behaviour** — the needle has to be the code that DOES the thing.
+
+The surviving mutant is measured-redundant: a decision resolver that trusts its
+`optionId` survives, because `validate-answer-decision` already refuses an option
+outside `optionsFor`, and `advanceDecisions`' auto-resolve passes an id from that
+same list. Recorded at the site rather than deleted.
+
+**`neverSeated` is EMPTY for the first time** — every card in the pool can now be
+put in front of a player by some run. Reachability pin 791 -> 795 against 799;
+four finished sets EXACT for the TWENTIETH wave. `walkout` unmoved at 190/113/29.
 
 ### Partials, wave 1 — done 2026-08-19 (the three self-modifying [Empower] costs)
 

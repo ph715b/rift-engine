@@ -76,7 +76,22 @@ export interface CardDefinitionBase {
      * for `[Equip]`'s compound costs, and for the same reason: every one of these
      * already existed as an activation cost, so none needed a new cost model.
      */
-    extra?: { exhaust?: true; discard?: number; killFriendlyPermanent?: true };
+    extra?: { exhaust?: true; discard?: number; discardKind?: "Spell" | "Unit" | "Gear"; killFriendlyPermanent?: true };
+    /**
+     * The OTHER price, for an Empower whose cost is a choice — Legion Marauder's
+     * "[Empower] — [1] **or** [Body]" (827.1.c.2's "Pay either cost").
+     *
+     * A second cost rather than a flag, because the two halves are different
+     * RESOURCES: one Energy exhausts a rune, one Body Power recycles one, and a
+     * player holding only off-domain runes can pay the first and not the second.
+     * Charging either alone is cheaper than the choice and charging both is
+     * dearer, so neither approximation is available.
+     *
+     * Becomes two `AbilityMode`s, which have priced modes separately since Jax -
+     * Grandmaster At Arms — so the player picks at the moment they activate, which
+     * is what the card says.
+     */
+    alternative?: { energy: number; powerCost: number; powerDomain: Domain | null };
     /**
      * A SELF-MODIFYING Empower cost — the sentence that follows the pips and
      * changes what they mean.

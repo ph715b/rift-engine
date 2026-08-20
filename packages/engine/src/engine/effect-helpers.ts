@@ -1169,7 +1169,25 @@ export function empowerPermanent(state: GameState, instanceId: string): GameStat
   // empowering herself in response would re-enter this function, and the guard
   // above (441.1.a's binary status) would stop it anyway — but the printed word
   // is the reason, not the guard.
-  return legendsEmpoweredBySomethingElse(setEmpowered(state, instanceId, true), instanceId);
+  const empowered = legendsEmpoweredBySomethingElse(setEmpowered(state, instanceId, true), instanceId);
+  // **"When I become [Empowered]"** — Mel, Defiant Soul (VEN-110).
+  //
+  // HELD (383), unlike the Legend hook on the line above, and the difference is
+  // what each one does: that hook writes a status with nothing to choose, and
+  // this one names a TARGET. A question parked inline would be asked in the
+  // middle of whatever resolution did the empowering.
+  //
+  // Fired AFTER the status is written, so a listener reading the board sees a
+  // permanent that IS Empowered — and after the Legend hook, so a Mel empowered
+  // BY that hook still gets her own trigger.
+  //
+  // The guard at the top of this function is what makes this a TRANSITION rather
+  // than a repeat: an already-Empowered permanent returns before reaching here,
+  // so 441.1.a's binary status is what stops a second firing.
+  const owner = ownerOfPermanent(empowered, instanceId);
+  return owner === undefined
+    ? empowered
+    : holdEventTrigger(empowered, { kind: "becameEmpowered", ownerIndex: owner, permanentInstanceId: instanceId });
 }
 
 /**

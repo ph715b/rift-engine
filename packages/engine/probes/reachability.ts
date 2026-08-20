@@ -743,7 +743,19 @@ const GAMES = Number(process.env.GAMES ?? 500);
 // exercised (VEN 150 -> 153) — no displacement this time, unlike the two waves
 // before it. Four finished sets EXACT for the NINETEENTH consecutive wave: OGN
 // 228, OGS 21, SFD 188, UNL 205. `neverSeated` is down to VEN-074 and VEN-110.
-const PINNED_UNION = 791;
+// **791 -> 795 on 2026-08-19, against 799 after Vendetta's last two compound
+// `[Empower]` costs.** TWO cards written and FOUR newly exercised (VEN 153 ->
+// 157); neither has an alternate printing, so the other two are this probe's own
+// per-run variance — the reshuffle reaching cards a previous run missed, which is
+// the same noise the pin's headroom exists for, in the other direction.
+//
+// **`neverSeated` is EMPTY for the first time.** Every card in the pool can now
+// be put in front of a player by some run, which is the condition that bucket was
+// created to measure the absence of.
+//
+// Four finished sets EXACT for the TWENTIETH consecutive wave: OGN 228, OGS 21,
+// SFD 188, UNL 205.
+const PINNED_UNION = 795;
 const PINNED_AT_GAMES = 500;
 
 const registry = defaultCardRegistry();

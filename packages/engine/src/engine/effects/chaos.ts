@@ -171,6 +171,34 @@ const PREFECT_BANISH = "VEN-102-banish";
 const MINAH_MODE = "VEN-111-mode";
 /** Up from the Deep plays this many Tentacles. */
 const UP_FROM_THE_DEEP_TENTACLES = 2;
+
+/** Mel, Defiant Soul's "banish an enemy unit at a battlefield with 3 [Might] or
+ *  less", and the question that chooses it — written once because the trigger
+ *  that parks it and the entry that answers it must agree, and a typo in either
+ *  is SILENT: a definition keyed to a kind nobody parks simply never runs. */
+const MEL_DEFIANT_MAX_MIGHT = 3;
+const MEL_DEFIANT_BANISH = "VEN-110-banish";
+
+/**
+ * The units Mel, Defiant Soul may banish — enemy, AT A BATTLEFIELD, 3 Might or
+ * less.
+ *
+ * Its own function because BOTH the trigger's `applies` and the decision's
+ * `options` ask it, and those two disagreeing is how a response window opens on
+ * an ability with nothing to do (or worse, a question with no answers). Read live
+ * at each site rather than captured, since the board moves while a held trigger
+ * waits on the chain.
+ *
+ * `eligibleTargets` with the default `"battlefield"` scope is the printed "at a
+ * battlefield" (355.9.b, the NARROWING half), and `unitWithinMaxMight` is the
+ * shared EFFECTIVE-Might predicate (143.2) every other "N Might or less" in the
+ * pool uses — so a unit pumped in the response window walks out of range.
+ */
+function melBanishCandidates(state: GameState, ownerIndex: 0 | 1): UnitInstance[] {
+  return eligibleTargets(state, ownerIndex, "enemy").filter((u) =>
+    unitWithinMaxMight(state, u, MEL_DEFIANT_MAX_MIGHT),
+  );
+}
 /** Decree of Discord's TOTAL Might ceiling across the whole chosen set. */
 const DECREE_OF_DISCORD_MAX_TOTAL = 5;
 /** Illaoi's bonus per TOKEN unit you control. */
@@ -2115,6 +2143,47 @@ function pykeHasMinted(state: GameState, instanceId: string): boolean {
 const SPIRIT_WHEEL_DRAW_COST = 1;
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "VEN-110": {
+    // Mel, Defiant Soul — "[Empower] — Discard a spell. When I become
+    // [Empowered], banish an enemy unit at a battlefield with 3 [Might] or less."
+    //
+    // # Her COST is generated, and this is the half that is not
+    //
+    // "Discard a spell" is read by `parseEmpowerCost` into `{ discard: 1,
+    // discardKind: "Spell" }` and becomes the generated `[Empower]` ability like
+    // every other. **That means she reported IMPLEMENTED the moment the cost
+    // parsed, with this clause doing nothing** — the half-written-card shape, and
+    // the reason this entry was written in the same change rather than the next
+    // one.
+    //
+    // # The moment
+    //
+    // `becameEmpowered` is a new event fired from `empowerPermanent`, the single
+    // WRITER of the status — so she triggers however she was empowered, not only
+    // off her own ability. Sanction, Ambessa's hook, or a future card all reach
+    // her, which is what "when I become Empowered" says.
+    //
+    // "**I**" is by instance, so a second Mel on the board does not fire this one.
+    //
+    // # It is MANDATORY, and the target is chosen at RESOLUTION
+    //
+    // No "you may" is printed, so there is no decline. The choice of victim is a
+    // question rather than an action axis because a trigger has no action to fan
+    // targets onto — the same reason every other targeted trigger in this file
+    // parks one.
+    //
+    // `applies` refuses when there is no legal victim, which is what keeps a
+    // response window from opening on an ability that will resolve to nothing —
+    // the exact reason `applies` exists. Re-checked in the decision's own
+    // `options` too, because the board can change while the trigger waits.
+    on: "becameEmpowered",
+    applies: (state, listener, event) =>
+      event.kind === "becameEmpowered" &&
+      event.permanentInstanceId === listener.card.instanceId &&
+      melBanishCandidates(state, listener.ownerIndex).length > 0,
+    resolve: (state, listener) =>
+      parkDecision(state, { kind: MEL_DEFIANT_BANISH, playerIndex: listener.ownerIndex }),
+  },
   "VEN-109": {
     // Illaoi, Prophet of the Great Kraken — the "WHEN I SCORE" half. Her on-play
     // half is a `unitTriggers` entry and her Might clause a `mightModifiers` one.
@@ -3679,6 +3748,37 @@ function unitsInAnyTrash(state: GameState): { instanceId: string; name: string; 
 }
 
 export const decisions: Record<string, DecisionDefinition> = {
+  [MEL_DEFIANT_BANISH]: {
+    // Mel, Defiant Soul's banish. MANDATORY — no "you may" is printed — so there
+    // is no decline option and the only choice is WHICH.
+    //
+    // `options` is rebuilt from LIVE state rather than from a snapshot taken when
+    // the trigger fired, which is the whole reason `DecisionDefinition.options` is
+    // a function of state: a victim killed or pumped out of range while this
+    // waited on the chain is no longer a legal answer.
+    //
+    // An EMPTY list is reachable even though `applies` refused an empty board —
+    // the two are separated by a response window — and `advanceDecisions` pops a
+    // zero-option decision without resolving anything, which is the right outcome:
+    // 359.3, an instruction with nothing to act on does nothing.
+    prompt: () => "Mel, Defiant Soul: banish an enemy unit with 3 [Might] or less",
+    options: (state, d) =>
+      melBanishCandidates(state, d.playerIndex).map((u) => ({ id: u.instanceId, label: u.name, instanceId: u.instanceId })),
+    // Re-derived rather than trusted: the answer names an id, and only a CURRENT
+    // candidate may be acted on.
+    //
+    // **MEASURED-REDUNDANT, and kept.** A mutant that banishes whatever id it is
+    // handed SURVIVES, because `validate-answer-decision` already refuses an
+    // `optionId` that is not in `optionsFor(state, decision)` right now — and the
+    // auto-resolve path in `advanceDecisions` passes an id it took from that same
+    // list. So both routes in are already safe, and this is the contract stated
+    // at the site that depends on it rather than a live second gate.
+    resolve: (state, d, optionId) =>
+      melBanishCandidates(state, d.playerIndex).some((u) => u.instanceId === optionId)
+        ? banishUnitFromPlay(state, optionId)
+        : state,
+  },
+
   /**
    * Tornado Warrior's "you may empower something HERE. Disempower it at end of
    * turn."

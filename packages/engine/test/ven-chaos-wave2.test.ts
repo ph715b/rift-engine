@@ -4,6 +4,7 @@ import type { UnitInstance } from "../src/model/card.js";
 import type { RuneCard } from "../src/model/rune.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { isCardImplemented } from "../src/engine/coverage.js";
+import { eventTriggerFor } from "../src/engine/triggers.js";
 import { effectiveKeywords } from "../src/engine/granted-keywords.js";
 import { effectiveMight } from "../src/engine/effective-might.js";
 import { effectForCard } from "../src/engine/card-effects.js";
@@ -662,10 +663,26 @@ describe("coverage sees the wave", () => {
     }
   });
 
-  it("Chaos is finished apart from its one PARTIAL", () => {
-    // VEN-110 Mel, Defiant Soul — `[Empower] — Discard a spell` is a compound cost
-    // this engine cannot price (`ActivationCost.discard` counts any cards), so she
-    // waits with the other five partials.
-    expect(isCardImplemented(registry.get("VEN-110"))).toBe(false);
+  it("Chaos is FINISHED — its one partial is written", () => {
+    // **This pin asserted `false` and flipped on 2026-08-19.** Its note said
+    // "`[Empower] — Discard a spell` is a compound cost this engine cannot price
+    // (`ActivationCost.discard` counts any cards)", which was exactly right and
+    // exactly the blocker `discardKind` closed — a field added in another set for
+    // Sky Cruiser's "Discard a GEAR".
+    //
+    // **The cost alone would have been a coverage LIE**, and that is the half
+    // worth keeping here: her second sentence ("when I become [Empowered], banish
+    // an enemy unit…") is a separate clause, and parsing the cost was enough to
+    // make `isCardImplemented` say yes while the clause did nothing. So this
+    // asserts BOTH — the card reports whole, and the trigger that makes it whole
+    // is really registered.
+    expect(isCardImplemented(registry.get("VEN-110")), "Mel, Defiant Soul regressed").toBe(true);
+    expect(eventTriggerFor("VEN-110"), "her become-Empowered clause is not registered").toBeDefined();
+
+    const chaosPartials = registry
+      .all()
+      .filter((d) => d.id.startsWith("VEN-") && (d.domains ?? []).includes("Chaos") && !isCardImplemented(d))
+      .map((d) => `${d.id} ${d.name}`);
+    expect(chaosPartials, "a Chaos card is unimplemented again").toEqual([]);
   });
 });

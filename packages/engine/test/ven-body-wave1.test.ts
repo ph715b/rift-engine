@@ -673,9 +673,24 @@ describe("coverage sees the wave", () => {
     }
   });
 
-  it("Legion Marauder (VEN-074) is still the domain's one PARTIAL", () => {
-    // His `[Empower]` cost is "[1] OR [Body]" — an alternative, and no cost shape
-    // in this engine expresses a choice. Left with the other five partials.
-    expect(isCardImplemented(registry.get("VEN-074"))).toBe(false);
+  it("Legion Marauder (VEN-074) is FINISHED, and Body has no partial left", () => {
+    // **This pin asserted `false` and flipped on 2026-08-19.** Its note said his
+    // `[Empower]` cost is "[1] OR [Body]" — an alternative — "and no cost shape in
+    // this engine expresses a choice." Right about the blocker; the answer turned
+    // out not to be a new cost shape at all. `AbilityMode` has priced modes
+    // separately since Jax - Grandmaster At Arms, so the alternative became two
+    // MODES and the player picks which price to pay.
+    //
+    // Inverted rather than deleted, and widened to the DOMAIN: a card that
+    // silently stopped being registered looks like nothing at all, and the
+    // interesting claim now is that Body has no partial left rather than that this
+    // one card works.
+    expect(isCardImplemented(registry.get("VEN-074")), "Legion Marauder regressed").toBe(true);
+
+    const bodyPartials = registry
+      .all()
+      .filter((d) => d.id.startsWith("VEN-") && (d.domains ?? []).includes("Body") && !isCardImplemented(d))
+      .map((d) => `${d.id} ${d.name}`);
+    expect(bodyPartials, "a Body card is unimplemented again").toEqual([]);
   });
 });

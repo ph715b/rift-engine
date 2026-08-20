@@ -1297,7 +1297,29 @@ export type GameEvent =
    * ends up doing nothing was still used, the same reading the mode-use record
    * beside it takes.
    */
-  | { kind: "abilityActivated"; activatorIndex: 0 | 1; sourceKind: CardInstance["kind"]; sourceInstanceId: string };
+  | { kind: "abilityActivated"; activatorIndex: 0 | 1; sourceKind: CardInstance["kind"]; sourceInstanceId: string }
+  /**
+   * A permanent that was NOT Empowered now is — Mel, Defiant Soul's "when I
+   * become [Empowered], banish an enemy unit at a battlefield with 3 [Might] or
+   * less".
+   *
+   * **Unlike `unitBecameMighty` two entries up, this transition has a single
+   * WRITER and needs no before/after comparison.** Empowered is a stored binary
+   * status (441.1.a), so `empowerPermanent` — which every one of the pool's
+   * empowering cards routes through — is the moment, and its own no-op guard for
+   * an already-Empowered permanent is what makes this a TRANSITION rather than a
+   * repeat. That is also why it carries none of the Mighty event's recorded
+   * partial: there is no aura that can quietly make something Empowered.
+   *
+   * Carries the PERMANENT, not a unit: gear and Legends can hold the status too
+   * (827 applies to any Game Object), so a listener that means "I" compares
+   * instance ids and one that means "a unit" checks the board itself.
+   *
+   * `ownerIndex` is the owner of what became Empowered, which is the same reading
+   * `legendsEmpoweredBySomethingElse` takes for "you" and carries the same
+   * recorded narrowing for Sanction's enemy-empowering case.
+   */
+  | { kind: "becameEmpowered"; ownerIndex: 0 | 1; permanentInstanceId: string };
 
 /**
  * The event kinds that have been CONVERTED to Chain Pending Items (383 /
@@ -1352,7 +1374,11 @@ export type HeldEventKind =
   | "cardsDiscarded"
   | "unitDied"
   | "spellCast"
-  | "abilityActivated";
+  | "abilityActivated"
+  // HELD, like every other trigger with a choice attached: Mel, Defiant Soul's
+  // banish names a target, and a question parked inline would be asked in the
+  // middle of whatever resolution did the empowering.
+  | "becameEmpowered";
 
 /** An event that is still resolved inline — everything not yet converted. */
 export type InlineEvent = Exclude<GameEvent, { kind: HeldEventKind }>;

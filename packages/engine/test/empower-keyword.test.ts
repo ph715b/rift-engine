@@ -169,21 +169,49 @@ describe("what the parsers refuse (and why coverage must agree)", () => {
     });
   });
 
-  it("still refuses a compound cost with a term it cannot charge", () => {
-    // **The two Vendetta shapes deliberately left unwritten**, each refused
-    // whole rather than approximated by the half that is expressible:
+  it("reads the two compound shapes that were once left unwritten", () => {
+    // **Both of these used to assert `toBeUndefined()`, and both refusal notes
+    // named their blocker exactly right** — which is why each says how it was
+    // closed rather than being deleted:
     //
-    //   "Discard a spell" — `ActivationCost.discard` is a COUNT of any cards, so
-    //   charging it would let the player discard a UNIT instead. Cheaper than
-    //   printed, which is the one direction this codebase never ships.
+    //   "Discard a spell" was refused because "`ActivationCost.discard` is a
+    //   COUNT of any cards, so charging it would let the player discard a UNIT
+    //   instead… It needs a narrowed discard field." That field is `discardKind`,
+    //   added in another set for Sky Cruiser's "Discard a GEAR".
     //
-    //   "[1] or [Body]" — an ALTERNATIVE cost. Either half alone is cheaper than
-    //   the choice and both together are dearer, so neither is the card.
-    expect(parseEmpowerCost("[Empower] — Discard a spell (reminder)")).toBeUndefined();
-    expect(parseEmpowerCost("[Empower] — :rb_energy_1: or :rb_rune_body: (reminder)")).toBeUndefined();
-    // A term this reader has never seen must take the whole cost with it, rather
-    // than yielding the terms before it.
+    //   "[1] or [Body]" was refused because "either half alone is cheaper than
+    //   the choice and both together are dearer, so neither is the card." Both
+    //   still true — so it is neither: it becomes two MODES and the player picks.
+    expect(parseEmpowerCost("[Empower] — Discard a spell (reminder)")).toEqual({
+      energy: 0,
+      powerCost: 0,
+      powerDomain: null,
+      extra: { discard: 1, discardKind: "Spell" },
+    });
+    expect(parseEmpowerCost("[Empower] — :rb_energy_1: or :rb_rune_body: (reminder)")).toEqual({
+      energy: 1,
+      powerCost: 0,
+      powerDomain: null,
+      alternative: { energy: 0, powerCost: 1, powerDomain: "Body" },
+    });
+  });
+
+  it("...and STILL refuses a compound cost with a term it cannot charge", () => {
+    // The half of the old pin that is untouched, and the rule it protects: a term
+    // this reader has never seen must take the whole cost with it rather than
+    // yielding the terms before it. Reading half a cost makes an ability CHEAPER
+    // than printed, which turns on a card's whole `[Empowered]` clause for free.
     expect(parseEmpowerCost("[Empower] — :rb_energy_1:, Sacrifice a rune (reminder)")).toBeUndefined();
+    // An unknown half of an ALTERNATIVE takes the whole cost too — otherwise the
+    // "or" reader would quietly charge the half it understood, which is the
+    // cheapest possible misreading of a card whose price IS a choice.
+    expect(parseEmpowerCost("[Empower] — :rb_energy_1: or Sacrifice a rune (reminder)")).toBeUndefined();
+    // Three-way, which no card prints and this reader must not invent a price for.
+    expect(
+      parseEmpowerCost("[Empower] — :rb_energy_1: or :rb_rune_body: or :rb_rune_fury: (reminder)"),
+    ).toBeUndefined();
+    // A narrowed discard of a kind that is not a card type.
+    expect(parseEmpowerCost("[Empower] — Discard a rune (reminder)")).toBeUndefined();
   });
 
   it("charges the compound half through the generated ability", () => {
@@ -325,15 +353,33 @@ describe("what the parsers refuse (and why coverage must agree)", () => {
     expect(partialImplementationNote(synthetic), "no partial note for a half-written card").toBeDefined();
     expect(isCardImplemented(synthetic), "a card with no way to Empower itself reported implemented").toBe(false);
 
-    // And the same claim on whatever real cards still qualify, found rather than
-    // named — so this cannot go stale as the remaining five are written, and
-    // cannot go vacuous either, since the count is asserted.
-    const stillUnreadable = registry
+    // **The real-card half was retired on 2026-08-19, because the list emptied.**
+    // It asserted `stillUnreadable.length > 0` and said, in as many words, "every
+    // [Empower] cost now parses — retire this half of the test". That is exactly
+    // what happened: the five it was watching (three self-modifying costs,
+    // "Discard a spell", "[1] or [Body]") are all written.
+    //
+    // An emptied `for` loop over a refusals list asserts NOTHING, so it is
+    // replaced by the positive sweep — every card that prints `[Empower]` now has
+    // a readable cost. A regression to unreadable would otherwise pass in silence,
+    // which is the whole failure this pin existed to prevent.
+    const unreadable = registry
       .all()
-      .filter((d) => (d.text ?? "").includes("[Empower]") && d.empowerCost === undefined);
-    expect(stillUnreadable.length, "every [Empower] cost now parses — retire this half of the test").toBeGreaterThan(0);
-    for (const card of stillUnreadable) {
-      expect(isCardImplemented(card), `${card.id} has no readable Empower cost but reports implemented`).toBe(false);
-    }
+      .filter((d) => (d.text ?? "").includes("[Empower]") && d.empowerCost === undefined)
+      .map((d) => `${d.id} ${d.name}`);
+    expect(unreadable, "an [Empower] cost stopped parsing").toEqual([]);
+
+    // Not vacuous: there really are cards being swept, and they really do print
+    // the keyword.
+    const empowerCards = registry.all().filter((d) => (d.text ?? "").includes("[Empower]"));
+    expect(empowerCards.length, "no card prints [Empower] — this sweep measures nothing").toBeGreaterThan(10);
+
+    // **A readable cost is not the same as a finished card**, and one card proves
+    // it: VEN-069 Mel, Newly Awakened's `[Empower] [3]` has always parsed, and she
+    // is PARTIAL for something else entirely — her second sentence, a replacement
+    // effect on -Might. Named here so the sweep above is not read as "every
+    // Empower card is done".
+    const stillPartial = empowerCards.filter((d) => partialImplementationNote(d) !== undefined).map((d) => d.id);
+    expect(stillPartial, "the set of Empower cards that are partial for OTHER reasons moved").toEqual(["VEN-069"]);
   });
 });

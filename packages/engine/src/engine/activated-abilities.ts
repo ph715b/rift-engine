@@ -756,19 +756,66 @@ function equipAbilities(): Record<string, ActivatedAbilityDefinition> {
  * are excluded one step earlier, by `parseEmpowerCost` refusing to read them —
  * see its comment. They report unimplemented, which is what they are.
  */
+/** A resource cost as the board's button should read it — "[1]", "[Body]", or
+ *  both. Only ever used for an alternative Empower's two modes, whose whole
+ *  point is that the player is choosing between two PRICES, so the label has to
+ *  be the price. */
+function describeCost(energy: number, powerCost: number, powerDomain: Domain | null): string {
+  const parts: string[] = [];
+  if (energy > 0) parts.push(`[${energy}]`);
+  if (powerCost > 0) parts.push(...Array.from({ length: powerCost }, () => `[${powerDomain ?? "rainbow"}]`));
+  return parts.length > 0 ? parts.join(" ") : "free";
+}
+
 function empowerAbilities(): Record<string, ActivatedAbilityDefinition> {
   const out: Record<string, ActivatedAbilityDefinition> = {};
   for (const def of defaultCardRegistry().all()) {
     if (def.empowerCost === undefined) continue;
     if (def.type !== "Unit" && def.type !== "Gear" && def.type !== "Legend") continue;
-    const { energy, powerCost, powerDomain, extra, energyDiscount } = def.empowerCost;
+    const { energy, powerCost, powerDomain, extra, energyDiscount, alternative } = def.empowerCost;
+    const resourceCost = (e: number, p: number, domain: Domain | null): ActivationCost => ({
+      ...(e > 0 ? { energy: e } : {}),
+      ...(p > 0 ? { power: { domain, count: p } } : {}),
+    });
     out[def.id] = {
       kind: def.type,
+      // **An ALTERNATIVE cost becomes two MODES** — Legion Marauder's "[1] or
+      // [Body]" (827.1.c.2, "Pay either cost"). `AbilityMode.cost` overrides the
+      // ability's cost entirely, which is exactly the contract needed: each mode
+      // names its whole price, and the player chooses which to pay when they
+      // activate. Both resolve identically, because the card does one thing.
+      //
+      // Declared BESIDE `cost` rather than instead of it, which the interface
+      // forbids for a modal ability — so `cost` below is left off entirely when
+      // modes are present. `modesOf` turns the non-modal case into one unnamed
+      // mode anyway, so everything downstream sees one shape.
+      ...(alternative
+        ? {
+            modes: [
+              {
+                id: "printed",
+                label: `Empower (${describeCost(energy, powerCost, powerDomain)})`,
+                targeting: { kind: "none" } as const,
+                cost: resourceCost(energy, powerCost, powerDomain),
+                resolve: (state: GameState, _ctx: EffectContext, _event: ActivatedAbilityEvent, sourceInstanceId: string) =>
+                  empowerPermanent(state, sourceInstanceId),
+              },
+              {
+                id: "alternative",
+                label: `Empower (${describeCost(alternative.energy, alternative.powerCost, alternative.powerDomain)})`,
+                targeting: { kind: "none" } as const,
+                cost: resourceCost(alternative.energy, alternative.powerCost, alternative.powerDomain),
+                resolve: (state: GameState, _ctx: EffectContext, _event: ActivatedAbilityEvent, sourceInstanceId: string) =>
+                  empowerPermanent(state, sourceInstanceId),
+              },
+            ],
+          }
+        : {}),
       // NO exhaust unless the card printed one: 827.1.c.1's expansion is
       // "[Cost]: Empower this", and an exhaust nobody printed would make every
       // Empower a once-per-turn ability. The cards that DO print `[Exhaust]` in
       // their Empower cost are the compound ones `parseEmpowerCost` refuses.
-      cost: {
+      ...(alternative ? {} : { cost: {
         ...(energy > 0 ? { energy } : {}),
         ...(powerCost > 0 ? { power: { domain: powerDomain, count: powerCost } } : {}),
         // The COMPOUND half (827.1.c.2). Spread rather than translated, because
@@ -782,7 +829,7 @@ function empowerAbilities(): Record<string, ActivatedAbilityDefinition> {
         // it is asked, and baking a number in at load time would freeze it at the
         // rune count of an empty game.
         ...(energyDiscount ? { energyDiscount } : {}),
-      },
+      } }),
       availableWhile: (state, _playerIndex, sourceInstanceId) => !isEmpowered(state, sourceInstanceId),
       resolve: (state, _ctx, _event, sourceInstanceId) => empowerPermanent(state, sourceInstanceId),
     };

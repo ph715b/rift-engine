@@ -194,7 +194,7 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     expect(inline).toEqual(["OGN-101", "OGN-109", "OGN-251", "UNL-084", "UNL-088", "VEN-005", "VEN-006", "VEN-108"]);
   });
 
-  it("380 held / 8 inline of 388 trigger cards", () => {
+  it("381 held / 8 inline of 389 trigger cards", () => {
     const all = allTriggerCards(knownCardIds);
     const inline = new Set([...inlineEventTriggerDefIds(), ...legendInlineTriggerDefIds()]);
     const held = [...all].filter((defId) => !inline.has(defId));
@@ -734,10 +734,25 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // restricted move destination and no trigger of any kind.
     //
     // `inline` did not move: the new moment is HELD, like every death-watch.
+    // **380/8/388 -> 381/8/389 on 2026-08-19: Vendetta's partials, wave 2.** One
+    // card and one entry:
+    //
+    //     event (+1)  VEN-110 Mel, Defiant Soul — "when I become [Empowered],
+    //                 banish an enemy unit at a battlefield with 3 [Might] or
+    //                 less", on the new `becameEmpowered` moment
+    //     distinct: 1, and no alternate printing registers separately
+    //
+    // VEN-074 Legion Marauder is correctly absent: his whole card is an
+    // `[Empower]` cost and a static `[Empowered]` payload, both generated.
+    //
+    // **The new EVENT is the thing worth noticing here**, and it is why the
+    // number moved at all: `becameEmpowered` is fired from `empowerPermanent`,
+    // the single WRITER of the status, so any card that empowers reaches her.
+    // HELD, like every trigger with a choice attached.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 380,
+      held: 381,
       inline: 8,
-      cards: 388,
+      cards: 389,
     });
   });
 

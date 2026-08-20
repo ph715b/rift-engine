@@ -526,9 +526,7 @@ export function parseFlowCost(plain: string): { energy: number; powerCost: numbe
  * card's Empower cost for any reason", so honouring the printed number alone
  * would be too EXPENSIVE and the card would be unplayable at the price it means.
  */
-export function parseEmpowerCost(
-  plain: string,
-): { energy: number; powerCost: number; powerDomain: Domain | null; energyDiscount?: EnergyDiscountRule } | undefined {
+export function parseEmpowerCost(plain: string): (EmpowerCostShape & { energyDiscount?: EnergyDiscountRule }) | undefined {
   const at = plain.indexOf("[Empower]");
   if (at < 0) return undefined;
   const after = plain.slice(at + "[Empower]".length);
@@ -608,6 +606,57 @@ function parseEnergyDiscount(rest: string): EnergyDiscountRule | undefined {
   return undefined;
 }
 
+/** The non-resource half of a compound Empower cost, as the `ActivationCost`
+ *  fields it becomes. Named so `compoundEmpowerCost` and its helpers cannot
+ *  drift about which fields are expressible. */
+type EmpowerExtraCost = {
+  exhaust?: true;
+  discard?: number;
+  discardKind?: "Spell" | "Unit" | "Gear";
+  killFriendlyPermanent?: true;
+};
+
+type EmpowerCostShape = {
+  energy: number;
+  powerCost: number;
+  powerDomain: Domain | null;
+  extra?: EmpowerExtraCost;
+  alternative?: { energy: number; powerCost: number; powerDomain: Domain | null };
+};
+
+/**
+ * "[Empower] — [1] **or** [Body]" (Legion Marauder) — an ALTERNATIVE cost, where
+ * the player pays one side or the other.
+ *
+ * Returns the first half as the ordinary fields and the second as `alternative`,
+ * which `empowerAbilities` turns into two MODES. Order is the printed order, so
+ * the mode list reads like the card.
+ *
+ * **Exactly two halves, and both must be pure pips.** A three-way "or", or a half
+ * carrying a non-resource term, refuses the whole cost — `parseEquipCost`'s rule,
+ * and the only safe direction when the alternative is what makes the price a
+ * choice: reading one half alone is CHEAPER than printed, and reading both as a
+ * conjunction is DEARER.
+ */
+function alternativeEmpowerCost(terms: string): EmpowerCostShape | undefined {
+  const halves = terms.split(/\s+or\s+/i);
+  if (halves.length !== 2) return undefined;
+  const parsed = halves.map((half) => pipTermCost(half.trim()));
+  const [first, second] = parsed;
+  if (!first || !second) return undefined;
+  return { ...first, alternative: second };
+}
+
+/** One "pips and nothing else" term — `:rb_energy_1:`, `:rb_rune_body:`, or both
+ *  together. Anything else in the term (a word, a comma) refuses it, which is
+ *  what keeps `alternativeEmpowerCost` from reading half of a sentence as a
+ *  price. */
+function pipTermCost(term: string): { energy: number; powerCost: number; powerDomain: Domain | null } | undefined {
+  const shape = /^(?::rb_energy_(\d+):)?((?::rb_rune_[a-z]+:)*)$/i.exec(term);
+  if (!shape) return undefined;
+  return costFromPips(shape[1], shape[2] ?? "");
+}
+
 /**
  * A compound `[Empower]` cost's terms — the half after the em dash (827.1.c.2).
  *
@@ -627,11 +676,21 @@ function parseEnergyDiscount(rest: string): EnergyDiscountRule | undefined {
  *   here expresses. Charging either half alone is cheaper than the choice, and
  *   charging both is dearer.
  */
-function compoundEmpowerCost(
-  terms: string,
-): { energy: number; powerCost: number; powerDomain: Domain | null; extra?: { exhaust?: true; discard?: number; killFriendlyPermanent?: true } } | undefined {
+function compoundEmpowerCost(terms: string): EmpowerCostShape | undefined {
+  // **An ALTERNATIVE cost (827.1.c.2's "pay either cost") is read FIRST**, before
+  // the comma split, because its two halves are joined by "or" and neither is a
+  // term of the other. Legion Marauder's "[1] or [Body]" is the pool's only one.
+  //
+  // This comment used to say the shape was refused because "charging either half
+  // alone is cheaper than the choice, and charging both is dearer" — which was
+  // exactly right, and is why the answer is neither: it becomes two MODES, and the
+  // player picks. `AbilityMode.cost` has priced modes separately since Jax -
+  // Grandmaster At Arms, so this needed no new cost model either.
+  const alternative = alternativeEmpowerCost(terms);
+  if (alternative) return alternative;
+
   let energy = 0;
-  const extra: { exhaust?: true; discard?: number; killFriendlyPermanent?: true } = {};
+  const extra: EmpowerExtraCost = {};
   for (const raw of terms.split(",")) {
     const term = raw.trim();
     if (term === "") continue;
@@ -647,6 +706,23 @@ function compoundEmpowerCost(
     const discard = /^Discard (\d+)$/i.exec(term);
     if (discard) {
       extra.discard = Number.parseInt(discard[1]!, 10);
+      continue;
+    }
+    // **"Discard a SPELL"** — Mel, Defiant Soul. This comment used to say the
+    // shape was refused because "`ActivationCost.discard` is a COUNT of any
+    // cards, so charging it would let the player discard a unit instead… It
+    // needs a narrowed discard field." That field is `discardKind`, added for
+    // Sky Cruiser's "Discard a GEAR", and `discardableForCost` is the one walk
+    // the affordability check, the enumerator, the validator and the payment all
+    // share. So the refusal named its blocker precisely and the blocker was
+    // closed by a card in another set.
+    const discardKind = /^Discard a (spell|unit|gear)$/i.exec(term);
+    if (discardKind) {
+      extra.discard = 1;
+      extra.discardKind = (discardKind[1]!.charAt(0).toUpperCase() + discardKind[1]!.slice(1).toLowerCase()) as
+        | "Spell"
+        | "Unit"
+        | "Gear";
       continue;
     }
     if (/^Kill a friendly unit$/i.test(term)) {
