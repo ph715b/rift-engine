@@ -17,6 +17,7 @@ import {
   wearerOf,
   cardPlacesTokens,
   chooseAction,
+  HUMAN_OPPONENT_WEIGHTS,
   computeAutoPayment,
   computeEffectiveCost,
   actingPlayerIndex,
@@ -523,11 +524,25 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   // information for its own lookahead), so driving both seats is the absence of
   // the `isHumanTurn` guard rather than any new code. That is the whole feature:
   // everything else here is about not offering a human affordances.
+  //
+  // **`HUMAN_OPPONENT_WEIGHTS`, not the engine's default**, and that is the one
+  // place the two AI policies diverge — see the constant for why they do. It is
+  // the own-turn rollout, worth 71% against the default on the preset decks;
+  // the engine's probes deliberately keep the cheaper policy.
+  //
+  // It runs SYNCHRONOUSLY on this thread, so its tail is a frozen tab rather
+  // than a slow spinner, and that was measured over 1271 real decisions before
+  // this line changed: median 0.65 ms, p95 28 ms, worst 153 ms, nothing over
+  // 250 ms. The worst case is a beam away from 954 ms — `ROLLOUT_BEAM` is what
+  // keeps it there, so treat a change to it as a change to this line too.
+  //
+  // Under SPECTATE both seats pay this, which is fine: nobody is waiting on an
+  // affordance, and a stronger game is a better one to watch.
   useEffect(() => {
     if (isGameOver) return;
     if (canAct) return;
     const timer = setTimeout(() => {
-      const action = chooseAction(state);
+      const action = chooseAction(state, HUMAN_OPPONENT_WEIGHTS);
       setGame(submit(state, action));
     }, AI_MOVE_DELAY_MS);
     return () => clearTimeout(timer);

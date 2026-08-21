@@ -26,9 +26,15 @@ which is the entire reason they are TypeScript.
 | `exercised.ts` | which cards have ever actually *run*, as opposed to being registered, for ONE deck set | instrument health only — all three signals fired, nothing unresolved, something still unexercised |
 | `reachability.ts` | the same question over the WHOLE pool: presets plus one covering run per set, unioned | every run healthy with `invalid: 0`, the union beats every single run, and it has not fallen below the pinned 429 |
 | `why-not-offered.ts` | why one named card was never offered — affordability, timing, or a real gap | `CARDS=` reached a hand in at least one game (the `tried > 0` rule) |
+| `ai-ab.ts` | candidate `EvalWeights` against the shipping ones, both seats, same seed | baseline-vs-baseline reads **exactly 50.0%** with identical action mixes, 0 errors, 0 hitCap |
 
 All take `GAMES=<n>`. `reachability` defaults to **250** and takes ~60s; the rest
 default to 40.
+
+`ai-ab` is the odd one out: it is a MEASUREMENT, not a gate, and it takes
+`key=value` arguments rather than only env vars (`--games` counts PAIRS). It is
+not in the verification loop — run it when changing the AI, and read the
+`tune-the-ai` skill first.
 
 ### `reachability.ts` is the one in the loop
 

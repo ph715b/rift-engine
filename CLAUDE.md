@@ -79,15 +79,41 @@ by control, exactly as above.
 **`walkout` IS deterministic — five runs, same figures — and `reachability` is
 NOT.** Do not carry an assumption from one to the other; see the pin note below.
 
-`reachability` is pinned at **796, against an observed 798** of 868 cards needing
-code ever exercised, at its default **500 games per mode**. Its runtime with
+`reachability` is pinned at **796, against an observed 800** of 868 cards needing
+code ever exercised, at its default **500 games per mode**.
+
+**The observed figure went 798 -> 800 on 2026-08-19 and the pin did NOT move,
+deliberately.** The probe PRINTS "bump PINNED_UNION" whenever observed exceeds
+the pin; the paragraph further down says the pin sits ~4 BELOW observed on
+purpose, because this probe is not deterministic. Those two contradict each
+other and the paragraph wins — 796 against 800 is exactly the intended gap.
+Reconcile the probe's printed advice with this file rather than acting on it. Its runtime with
 Vendetta in the pool has been measured between **292s and 496s on the same
 machine**, so treat any single timing as noise unless it is decomposed by
 control.
 
 **Read the PER-SET figures, not only the union.** OGN **228**, OGS **21**, SFD
-**186**, UNL **205**. **VEN joined `COMPLETE_SETS` on 2026-08-19** — all five sets
-are declared, and `everyUnexercisedExplained` now covers the whole pool.
+**186**, UNL **207**, VEN **158**. **VEN joined `COMPLETE_SETS` on 2026-08-19** —
+all five sets are declared, and `everyUnexercisedExplained` now covers the whole
+pool.
+
+**UNL moved 205 -> 207 on 2026-08-19 and it is an AI change, not a card change.**
+`BASELINE_WEIGHTS.bankAbilities` flipped to true, so `candidateActions` now offers
+the `ActivateAbility` candidates that only BANK a resource. Both cards are
+**UNL-234 Diana - Scorn of the Moon** (Overnumbered and Signature) — a Legend,
+never drawn and never offered, whose only ability is `[Exhaust]: [Add] 1 Energy`.
+That flag is the only mechanism in the engine that can exercise her. Decomposed by
+control (flag off -> 798/UNL 205, on -> 800/UNL 207), `walkout` unmoved at
+190/113/29, win rate exactly 50.0% over 400 games. See `docs/ai-improvement-plan.md`
+and the `tune-the-ai` skill.
+
+**The AI now has TWO policies and the probes run the cheaper one.**
+`BASELINE_WEIGHTS` is what every figure in this file was measured with;
+`HUMAN_OPPONENT_WEIGHTS` adds `ownTurnRollout` (worth 69.5%/58.8% head to head,
+~11.8x runtime) and is what `GameBoard.tsx` passes, so **these pins describe the
+probe policy, not the opponent a person plays.** The bias runs the safe way — the
+stronger policy plays MORE cards and abilities, so a probe on the cheap one
+understates a real game, and this is a floor.
 
 **SFD moved for the FIRST time on 2026-08-20, 188 -> 186, and it is not a card
 regression.** It had held exactly across twenty-one Vendetta waves. The cause is
