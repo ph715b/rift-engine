@@ -3,7 +3,7 @@ import { canonicalDefId } from "../cards/card-loader.js";
 import type { UnitInstance } from "../model/card.js";
 import { scoreHolds } from "./scoring.js";
 import { dispatchLegendBeginningPhase } from "./legend-abilities.js";
-import { destroyUnit, disempowerPermanent, drawCards, empowerPermanent, healAllUnits, returnBorrowedUnits } from "./effect-helpers.js";
+import { destroyUnit, disempowerPermanent, drawCards, empowerPermanent, healAllUnits, returnBorrowedUnits, withSimultaneousDeaths } from "./effect-helpers.js";
 import { dispatchEvent, holdEventTrigger, killGear } from "./triggers.js";
 import { holdBattlefieldTrigger, runBattlefieldBeginningPhase } from "./battlefield-abilities.js";
 import { withoutAttachFreshness } from "./equipment.js";
@@ -183,7 +183,9 @@ function killTemporaryPermanents(state: GameState): GameState {
   // also has a [Deathknell] must still fire it (rule 808 fires on any death), and
   // destroyUnit is what carries that whole funnel. Ids rather than units, because
   // each kill rebuilds the board and a captured unit object would go stale.
-  const afterUnits = doomed.reduce((next, instanceId) => destroyUnit(next, instanceId), state);
+  const afterUnits = withSimultaneousDeaths(state, (inBatch) =>
+    doomed.reduce((next, instanceId) => destroyUnit(next, instanceId), inBatch),
+  );
 
   // GEAR can be Temporary too — Fading Memories targets "a unit at a battlefield
   // or a gear", and 816 says "kill THIS permanent", not "this unit". Routed

@@ -17,6 +17,7 @@ import {
   recallUnitToBase,
   returnCardFromTrash,
   stunUnits,
+  withSimultaneousDeaths,
 } from "./effect-helpers.js";
 import { placeRecruitToken, type TokenDestination } from "./token.js";
 import { hasKeyword, keywordOnEntry } from "./granted-keywords.js";
@@ -956,7 +957,9 @@ const ATTACK_TRIGGERS: Record<string, AttackTriggerBody> = {
       .flatMap(([, units]) => units)
       .filter((u) => u.damage > 0 && u.instanceId !== unit.instanceId)
       .map((u) => u.instanceId);
-    return damagedEnemyIds.reduce((next, id) => destroyUnit(next, id, ctx.casterIndex), state);
+    return withSimultaneousDeaths(state, (inBatch) =>
+      damagedEnemyIds.reduce((next, id) => destroyUnit(next, id, ctx.casterIndex), inBatch),
+    );
   },
 };
 

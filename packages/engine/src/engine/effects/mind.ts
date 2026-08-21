@@ -57,6 +57,7 @@ import {
   returnCardFromTrash,
   returnUnitToHand,
   takeOneFromTopAndRecycleRest,
+  withSimultaneousDeaths,
 } from "../effect-helpers.js";
 import { playUnitToBase, playUnitToBattlefield } from "../deploy.js";
 import { playCardIgnoringCost } from "../play-free.js";
@@ -3938,10 +3939,12 @@ export const decisions: Record<string, DecisionDefinition> = {
       // Units through `destroyUnit`, gear through `killGear` — the split every
       // "kill a friendly permanent" cost in this engine makes, and the same two
       // calls `activated-abilities` pays its own kill cost with.
-      const killed = picked.reduce((next, id) => {
-        const gear = next.players[d.playerIndex].activeGear.find((g) => g.instanceId === id);
-        return gear ? killGear(next, gear, d.playerIndex) : destroyUnit(next, id);
-      }, state);
+      const killed = withSimultaneousDeaths(state, (inBatch) =>
+        picked.reduce((next, id) => {
+          const gear = next.players[d.playerIndex].activeGear.find((g) => g.instanceId === id);
+          return gear ? killGear(next, gear, d.playerIndex) : destroyUnit(next, id);
+        }, inBatch),
+      );
       return gainPoints(killed, d.playerIndex, 1);
     },
   },

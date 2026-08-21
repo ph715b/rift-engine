@@ -4,7 +4,7 @@ import { recordConquest } from "./scoring.js";
 import { effectiveMight } from "./effective-might.js";
 import { anyDamageIsLethalTo, damageIsDoubledFor, takesNoDamage } from "./damage-modifiers.js";
 import { hasKeyword, otherOwnUnitsHere } from "./granted-keywords.js";
-import { healAllUnits, killUnit, relocateToBaseUnchanged } from "./effect-helpers.js";
+import { healAllUnits, killUnit, relocateToBaseUnchanged, withSimultaneousDeaths } from "./effect-helpers.js";
 import { clearContested } from "./cleanup.js";
 import { holdEventTrigger } from "./triggers.js";
 
@@ -633,8 +633,18 @@ export function resolveShowdown(state: GameState, battlefieldId: string, attacke
     // combats can never both be waiting on it.
     lastShowdownExcessDamage: { battlefieldId, attackerIndex, amount: excessToDefenders },
   };
-  next = processDefeated(next, defeatedAttackers, attackerIndex, battlefieldId);
-  next = processDefeated(next, defeatedDefenders, defenderIndex, battlefieldId);
+  // ONE batch across BOTH sides — combat damage is dealt simultaneously (466),
+  // so every unit that falls to it dies in the same event, and Zhonya's
+  // Hourglass' 373 choice must see all of them at once rather than being spent
+  // on whichever side `processDefeated` was called for first.
+  next = withSimultaneousDeaths(next, (inBatch) =>
+    processDefeated(
+      processDefeated(inBatch, defeatedAttackers, attackerIndex, battlefieldId),
+      defeatedDefenders,
+      defenderIndex,
+      battlefieldId,
+    ),
+  );
 
   // ── Combat Cleanup, rule 466 Step 3 ────────────────────────────────────
   // 3c. "Heal all Units" — GLOBAL, not just the units that fought here: a

@@ -32,6 +32,7 @@ import {
   spendBuff,
   spendXp,
   isEmpowered,
+  withSimultaneousDeaths,
 } from "../effect-helpers.js";
 import { readyableOthers } from "../unit-triggers.js";
 import { playUnitToBattlefield } from "../deploy.js";
@@ -2806,15 +2807,17 @@ export const decisions: Record<string, DecisionDefinition> = {
     options: (state, d) => duelKeepOptions(state, d.playerIndex),
     resolve: (state, d, optionId) => {
       const spared = new Set([d.cardInstanceId, optionId].filter((id): id is string => id !== undefined && id !== DUEL_KEEPS_NOTHING));
-      let next = state;
-      for (const unit of allUnitsBothSides(state)) {
-        if (spared.has(unit.instanceId)) continue;
-        // No killer is attributed: the spell's caster is not on this decision, and
-        // a Duel is a mutual sweep rather than one player's removal. `destroyUnit`
-        // takes an optional killer for exactly this case.
-        next = destroyUnit(next, unit.instanceId);
-      }
-      return next;
+      return withSimultaneousDeaths(state, (inBatch) => {
+        let next = inBatch;
+        for (const unit of allUnitsBothSides(state)) {
+          if (spared.has(unit.instanceId)) continue;
+          // No killer is attributed: the spell's caster is not on this decision, and
+          // a Duel is a mutual sweep rather than one player's removal. `destroyUnit`
+          // takes an optional killer for exactly this case.
+          next = destroyUnit(next, unit.instanceId);
+        }
+        return next;
+      });
     },
   },
   /**

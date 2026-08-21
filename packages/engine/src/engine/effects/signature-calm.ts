@@ -24,6 +24,7 @@ import {
   readyUnit,
   recordModeUsed,
   stunUnits,
+  withSimultaneousDeaths,
 } from "../effect-helpers.js";
 import { effectiveMight } from "../effective-might.js";
 import { attackerIndexAt, attackingUnitsAt } from "../combat-designation.js";
@@ -280,7 +281,9 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // real (if rare) play — clearing a battlefield you are about to lose.
     targeting: { kind: "unitList", min: 0, sameBattlefield: true, maxTotalMight: 4 },
     resolve: (state, _ctx, event) =>
-      (event.targetUnitInstanceIds ?? []).reduce((next, id) => destroyUnit(next, id), state),
+      withSimultaneousDeaths(state, (inBatch) =>
+        (event.targetUnitInstanceIds ?? []).reduce((next, id) => destroyUnit(next, id), inBatch),
+      ),
   },
   "OGN-262": {
     // Zenith Blade (Calm + Order) — "[Action] Stun an enemy unit at a

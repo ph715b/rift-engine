@@ -34,6 +34,7 @@ import {
   spendBuff,
   spendXp,
   stunUnits,
+  withSimultaneousDeaths,
 } from "../effect-helpers.js";
 import { killGear } from "../triggers.js";
 import { placeGoldTokens, placeRecruitToken, placeToken, type TokenDestination, type TokenSpec, BIRD_TOKEN, SAND_SOLDIER_TOKEN } from "../token.js";
@@ -889,7 +890,9 @@ export const cardEffects: Record<string, EffectDefinition> = {
     targeting: { kind: "none" },
     resolve: (state, ctx) => {
       const doomed = ([0, 1] as const).flatMap((owner) => ownUnitsEverywhere(state, owner).map((u) => u.instanceId));
-      return doomed.reduce((next, instanceId) => destroyUnit(next, instanceId, ctx.casterIndex), state);
+      return withSimultaneousDeaths(state, (inBatch) =>
+        doomed.reduce((next, instanceId) => destroyUnit(next, instanceId, ctx.casterIndex), inBatch),
+      );
     },
   },
   "UNL-159": {
@@ -1276,7 +1279,9 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     // is not "you killing it" in the sense Solari Shrine asks about.
     targeting: { kind: "none" },
     resolve: (state, _ctx, _unitId, event) =>
-      (event.additionalCostUnitInstanceIds ?? []).reduce((next, id) => destroyUnit(next, id), state),
+      withSimultaneousDeaths(state, (inBatch) =>
+        (event.additionalCostUnitInstanceIds ?? []).reduce((next, id) => destroyUnit(next, id), inBatch),
+      ),
   },
   "SFD-160": {
     // Zaun Punk — "You may kill a friendly gear as an additional cost to play

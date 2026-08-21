@@ -192,6 +192,90 @@ export function offerPaidDeathWard(state: GameState, death: PendingDeath): GameS
   });
 }
 
+/** The question Zhonya's Hourglass parks when a BATCH of deaths gives its
+ *  controller a choice, written once because `withSimultaneousDeaths` raises it
+ *  and `effects/calm.ts` answers it. */
+export const HOURGLASS_SAVE = "OGN-077-save";
+
+/** Is there an Hourglass on this player's board to spend? */
+export function hasHourglass(state: GameState, ownerIndex: 0 | 1): boolean {
+  return state.players[ownerIndex].activeGear.some((g) => g.defId === ZHONYAS_HOURGLASS);
+}
+
+/**
+ * Spends the Hourglass on one death: "kill this instead. Heal that unit, exhaust
+ * it, and recall it."
+ *
+ * `killGear`, not a quiet removal — the Hourglass is KILLED, so it reaches the
+ * trash through the funnel that fires a gear's own killed-trigger.
+ *
+ * `undefined` when there is no gear to spend — the same "there was no
+ * replacement here" answer `freeDeathReplacement` gives, so the caller falls
+ * through to the ordinary death. That is also what makes the batch honest about
+ * **370.2** ("a Replacement Effect can only be applied once to an event"): a
+ * second call in one batch finds nothing left.
+ *
+ * The gear is re-found here rather than passed in, because a batch can kill it:
+ * Bottled Constellation's cost eats friendly units AND gear in the same sweep,
+ * so the Hourglass can be fodder for the very deaths it was going to replace.
+ */
+export function applyHourglass(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1): GameState | undefined {
+  const hourglass = state.players[ownerIndex].activeGear.find((g) => g.defId === ZHONYAS_HOURGLASS);
+  if (!hourglass) return undefined;
+  return reviveToBase(killGear(state, hourglass, ownerIndex), unit, ownerIndex);
+}
+
+/** Holds a death back for the open batch rather than settling it now — see
+ *  `GameState.hourglassBatch` for what the two states of that field mean. */
+export function deferToHourglassBatch(state: GameState, death: PendingDeath): GameState {
+  return { ...state, hourglassBatch: [...(state.hourglassBatch ?? []), death] };
+}
+
+/**
+ * Closes an open batch: moves its deaths into the replacement pen and asks each
+ * affected controller WHICH of their dying units the Hourglass takes.
+ *
+ * One question per player with one option per candidate, rather than a
+ * save-or-pass per death. That is 373 read literally — with a single Hourglass,
+ * spent by the first application, "the order to apply them in" and "which one
+ * gets it" are the same choice — and it keeps the card MANDATORY for free:
+ * declining is not on the menu because the card prints no "you may".
+ *
+ * A batch with ONE candidate produces a one-option question, which
+ * `advanceDecisions` executes without prompting. That is why a lone death still
+ * behaves exactly as it did before the choice existed.
+ */
+export function settleHourglassBatch(state: GameState): GameState {
+  const batch = state.hourglassBatch ?? [];
+  // DELETED rather than set to undefined: `exactOptionalPropertyTypes` is on, and
+  // the two are exactly the distinction this field is carrying — an absent key is
+  // "no batch open", which is what closing one must leave behind.
+  const { hourglassBatch: _closed, ...rest } = state;
+  const cleared: GameState = rest;
+  if (batch.length === 0) return cleared;
+
+  const penned: GameState = {
+    ...cleared,
+    unitsAwaitingDeathReplacement: [...cleared.unitsAwaitingDeathReplacement, ...batch],
+  };
+
+  // Turn order, so that with both players losing units at once the turn player
+  // is asked first — the same reading 383.3.d.1 gets for simultaneous triggers.
+  const turn = state.activePlayerIndex;
+  const order: (0 | 1)[] = [turn, turn === 0 ? 1 : 0];
+  let next = penned;
+  for (const playerIndex of order) {
+    const mine = batch.filter((d) => d.ownerIndex === playerIndex);
+    if (mine.length === 0) continue;
+    next = parkDecision(next, {
+      kind: HOURGLASS_SAVE,
+      playerIndex,
+      cardInstanceIds: mine.map((d) => d.unit.instanceId),
+    });
+  }
+  return next;
+}
+
 /** The held death a replacement decision is about, if it is still waiting.
  *  Shared by every optional replacement — Sett's and the Armory's — so "which
  *  death is this question about" has one answer. */

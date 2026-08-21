@@ -7,12 +7,15 @@ import { effectiveMight } from "./effective-might.js";
 import { anyDamageIsLethalTo, damageIsDoubledFor, modifiedDamageAmount, preventsEnemySpellDamage, takesNoDamage } from "./damage-modifiers.js";
 import { matchesPowerDomain } from "./rune-payment.js";
 import {
-  ZHONYAS_HOURGLASS,
+  applyHourglass,
+  deferToHourglassBatch,
   freeDeathReplacement,
+  hasHourglass,
   isDeathWarded,
   offerPaidDeathWard,
   reviveToBase,
   reviveWithDeathWard,
+  settleHourglassBatch,
 } from "./death-ward.js";
 import { dispatchEvent, holdEventTrigger, holdSelfTrigger, holdUnitDied, killGear } from "./triggers.js";
 import { holdBattlefieldTrigger } from "./battlefield-abilities.js";
@@ -188,13 +191,6 @@ export function killUnit(
   const freeSave = freeDeathReplacement(state, unit, ownerIndex, battlefieldId, wornEquipment);
   if (freeSave) return freeSave;
 
-  const hourglass = state.players[ownerIndex].activeGear.find((g) => g.defId === ZHONYAS_HOURGLASS);
-  if (hourglass) {
-    // killGear, not a quiet removal: the Hourglass is KILLED, so it goes to the
-    // trash through the funnel that fires a gear's own killed-trigger.
-    return reviveToBase(killGear(state, hourglass, ownerIndex), unit, ownerIndex);
-  }
-
   const death: PendingDeath = {
     unit,
     ownerIndex,
@@ -215,6 +211,39 @@ export function killUnit(
   // Hourglass above neither can be preferred on "it isn't a choice" grounds —
   // recorded in docs/rules-conformance.md as a simplification of the rules'
   // let-the-controller-order-them.
+  // **Zhonya's Hourglass — 373, and the rules work this exact card and situation.**
+  //
+  //   373: "If more than one event occurs simultaneously that Replacement
+  //   Effects could apply to, each event is treated separately and individually
+  //   … and Replacement Effects with the same controller are applied IN THE
+  //   ORDER OF THEIR CONTROLLER'S CHOOSING."
+  //   Example: "Two units controlled by the same player die in the same cleanup.
+  //   That player also controls Zhonya's Hourglass. They must decide which event
+  //   to apply Zhonya's Hourglass to first."
+  //
+  // **This consumed the Hourglass on the FIRST death to reach here**, so a board
+  // wipe saved whichever unit the kill loop happened to process first and the
+  // controller was never asked. Reported from playtesting: "i think i should be
+  // able to choose which unit gets saved if multiple units die at the same time
+  // with the hourglass gear."
+  //
+  // A lone death is STILL settled right here, unasked: the card is mandatory
+  // ("kill this instead" prints no "you may"), so with one candidate there is no
+  // choice to offer. The fork is which of the two situations this is, and that
+  // is what `hourglassBatch` records — `withSimultaneousDeaths` opens it, every
+  // qualifying death inside falls to the defer below, and it asks once when the
+  // batch closes with all of them in hand.
+  //
+  // Asked BEFORE the two optional replacements below, where it has always sat —
+  // so the recorded Hourglass-wins-over-Sett simplification is unchanged.
+  if (hasHourglass(state, ownerIndex)) {
+    if (state.hourglassBatch !== undefined) return deferToHourglassBatch(state, death);
+    // killGear, not a quiet removal: the Hourglass is KILLED, so it goes to the
+    // trash through the funnel that fires a gear's own killed-trigger.
+    const saved = applyHourglass(state, unit, ownerIndex);
+    if (saved) return saved;
+  }
+
   const wardOffer = offerPaidDeathWard(state, death);
   if (wardOffer) return wardOffer;
 
@@ -222,6 +251,51 @@ export function killUnit(
   if (offer) return offer;
 
   return completeDeath(state, death);
+}
+
+/**
+ * Resumes a death that lost the Hourglass batch's choice, at exactly the point
+ * `killUnit` would have reached had there been no Hourglass to spend.
+ *
+ * Not `completeDeath`, and that is the difference worth having: the units the
+ * controller did NOT save are still owed their Unlicensed Armory ward and Sett's
+ * offer, which they would have been offered had the Hourglass never been on the
+ * board. Skipping straight to the trash would make owning an Hourglass silently
+ * cost you the other two replacements.
+ */
+export function resumeDeathAfterHourglass(state: GameState, death: PendingDeath): GameState {
+  const wardOffer = offerPaidDeathWard(state, death);
+  if (wardOffer) return wardOffer;
+
+  const offer = offerDeathReplacement(state, death);
+  if (offer) return offer;
+
+  return completeDeath(state, death);
+}
+
+/**
+ * Runs `kill` as ONE simultaneous batch of deaths, so Zhonya's Hourglass' 373
+ * choice can be put to its controller with every candidate in hand.
+ *
+ * **The engine has no other notion of simultaneity, and this is it.** Every mass
+ * kill in the pool is a loop of single `destroyUnit`/`killUnit` calls, so
+ * "several units die at once" is a fact about the CALLER and cannot be recovered
+ * inside the death funnel. Rule 373's own example says "die in the same
+ * cleanup"; this marks the same boundary at the eight places that produce one.
+ *
+ * Wrapping is free for every other card: with no Hourglass in play the batch
+ * collects nothing and `settleHourglassBatch` returns the state untouched, and a
+ * batch of one produces a one-option question that `advanceDecisions` executes
+ * without prompting.
+ *
+ * **Re-entrant on purpose.** A nested wrap (a Deathknell inside a board wipe
+ * that wipes again) joins the batch already open rather than closing it early —
+ * closing it would ask the question with half the candidates, which is the bug
+ * this whole mechanism exists to fix.
+ */
+export function withSimultaneousDeaths(state: GameState, kill: (inBatch: GameState) => GameState): GameState {
+  if (state.hourglassBatch !== undefined) return kill(state);
+  return settleHourglassBatch(kill({ ...state, hourglassBatch: [] }));
 }
 
 /**

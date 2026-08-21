@@ -12,7 +12,7 @@ import type {
 } from "../triggers.js";
 import { isAttackingAt, isFightingAt, isStillHere } from "../combat-designation.js";
 import type { DecisionDefinition } from "../decisions.js";
-import type { GameState, PlayerState } from "../../model/game-state.js";
+import type { GameState, PendingDeath, PendingDecision, PlayerState } from "../../model/game-state.js";
 import type { CardInstance, UnitInstance } from "../../model/card.js";
 import type { AnyUnitLocation } from "../target-lookup.js";
 import {
@@ -46,6 +46,8 @@ import {
   isEmpowered,
 } from "../effect-helpers.js";
 import { killGear } from "../triggers.js";
+import { HOURGLASS_SAVE, applyHourglass, hasHourglass, pendingDeathFor, releasePendingDeath } from "../death-ward.js";
+import { resumeDeathAfterHourglass } from "../effect-helpers.js";
 import { counterSpell, gainControlOfSpell } from "../counter-spell.js";
 import { wearerListener } from "../equipment.js";
 import { playCardIgnoringCost } from "../play-free.js";
@@ -3326,7 +3328,80 @@ function reinforceCandidates(state: GameState, playerIndex: 0 | 1) {
     .filter((c) => c.kind === "Unit" && c.energyCost <= 5);
 }
 
+/** The one option left when the Hourglass has gone between the question being
+ *  raised and answered — not a unit's instanceId, so it can never collide with a
+ *  candidate. */
+const NO_HOURGLASS = "no-hourglass";
+
+/** The deaths an Hourglass question is choosing between, in the order the batch
+ *  collected them, skipping any that have since been settled. */
+function heldHourglassDeaths(state: GameState, d: PendingDecision): PendingDeath[] {
+  return (d.cardInstanceIds ?? [])
+    .map((id) => pendingDeathFor(state, id))
+    .filter((death): death is PendingDeath => death !== undefined);
+}
+
 export const decisions: Record<string, DecisionDefinition> = {
+  [HOURGLASS_SAVE]: {
+    // **Zhonya's Hourglass (OGN-077) — "If a friendly unit would die, kill this
+    // instead. Heal that unit, exhaust it, and recall it."**
+    //
+    // The question is WHICH death to spend it on, not whether — **373**, whose
+    // worked example is this card by name: "Two units controlled by the same
+    // player die in the same cleanup. That player also controls Zhonya's
+    // Hourglass. They must decide which event to apply Zhonya's Hourglass to
+    // first."
+    //
+    // Reported from playtesting: "i think i should be able to choose which unit
+    // gets saved if multiple units die at the same time with the hourglass gear."
+    // The engine spent it on whichever death the kill loop reached first.
+    // **There is no "decline" option, and that is the card**: its text prints no
+    // "you may", so 373 hands the controller the ORDER, not a veto. With one
+    // Hourglass — spent by the first application — "which order do I apply them
+    // in" and "which one gets it" are the same question, so it is asked once per
+    // batch with one option per dying unit.
+    prompt: () => "Zhonya's Hourglass: which unit does it save?",
+    options: (state, d) => {
+      const held = heldHourglassDeaths(state, d);
+      if (held.length === 0) return [];
+      // **The batch can have killed the Hourglass itself**, and that is
+      // reachable rather than defensive: Bottled Constellation's cost eats
+      // friendly UNITS and GEAR in one sweep, so the gear can be fodder for the
+      // very deaths it was collected to replace. There is then nothing to spend
+      // and nothing to ask — one option, which `advanceDecisions` retires without
+      // prompting, and which exists at all so the held deaths are RELEASED rather
+      // than stranded in the pen by a question that returned no options.
+      if (!hasHourglass(state, d.playerIndex)) {
+        return [{ id: NO_HOURGLASS, label: "The Hourglass is already gone — they die" }];
+      }
+      return held.map((death) => ({
+        id: death.unit.instanceId,
+        label: `Kill the Hourglass: heal, exhaust and recall ${death.unit.name}`,
+      }));
+    },
+    resolve: (state, d, optionId) => {
+      const held = heldHourglassDeaths(state, d);
+      const chosen = held.find((death) => death.unit.instanceId === optionId);
+
+      // The save FIRST, so every other death in the batch then finds the gear
+      // already spent — 370.2, "a Replacement Effect can only be applied once to
+      // an event".
+      let next = state;
+      if (chosen) {
+        const saved = applyHourglass(releasePendingDeath(next, chosen.unit.instanceId), chosen.unit, chosen.ownerIndex);
+        // `undefined` only if the gear vanished between `options` and here, which
+        // nothing can do today — a decision blocks every other action (320.1).
+        // Letting it die is the same fallback the Armory's "the Fury has gone
+        // since the offer" branch takes.
+        next = saved ?? resumeDeathAfterHourglass(releasePendingDeath(next, chosen.unit.instanceId), chosen);
+      }
+      for (const death of held) {
+        if (death === chosen) continue;
+        next = resumeDeathAfterHourglass(releasePendingDeath(next, death.unit.instanceId), death);
+      }
+      return next;
+    },
+  },
   /**
    * Void Hatchling's look, before Apprentice Smith's reveal — "look at the top
    * card first. You may recycle it. Then reveal those cards."

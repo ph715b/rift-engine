@@ -1767,6 +1767,29 @@ export interface GameState {
    */
   unitsAwaitingDeathReplacement: PendingDeath[];
   /**
+   * The deaths of ONE simultaneous batch that Zhonya's Hourglass could replace,
+   * collected while the batch is still being applied — **373**, whose worked
+   * example is this exact card ("Two units controlled by the same player die in
+   * the same cleanup … they must decide which event to apply Zhonya's Hourglass
+   * to first").
+   *
+   * **`undefined` and `[]` mean different things, and that is the whole field.**
+   * `undefined` is "no batch in flight", and a death arriving then takes the
+   * Hourglass immediately, exactly as it always did — a lone kill is not a choice
+   * and must not raise a question. `[]` is "a batch is open": `killUnit` defers
+   * every qualifying death into it instead, and `withSimultaneousDeaths` asks
+   * once when the batch closes, by which time every death in it is present.
+   *
+   * A separate list rather than `unitsAwaitingDeathReplacement` above, because
+   * the pen means "a question about this death is outstanding" and these are the
+   * deaths no question has been raised about YET. They move into the pen when the
+   * batch closes and the question is parked.
+   *
+   * Not reset by runEnd, for the same reason the pen is not: a batch is only ever
+   * open inside one `withSimultaneousDeaths` call and is closed by it.
+   */
+  hourglassBatch?: PendingDeath[];
+  /**
    * Units played FOR FREE that are waiting on a placement answer — see
    * engine/free-play.ts.
    *
