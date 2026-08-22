@@ -4,6 +4,8 @@ import { parkDecision, repeatDecision } from "./decisions.js";
 import {
   addBuff,
   channelRunesExhausted,
+  dealDamage,
+  destroyUnit,
   discardThenDraw,
   drawCards,
   giveMightThisTurnToOwnUnit,
@@ -195,6 +197,14 @@ const PROTECTIVE_SANDS_ENERGY = 1;
  *  damage, play a 1 [Might] Bird unit token with [Deflect]." */
 const TRAPPING_GROUNDS = "UNL-217";
 const TRAPPING_GROUNDS_EXCESS = 3;
+
+/** Frozen Fortress — "At the start of each player's Beginning Phase, deal 1 to
+ *  each unit here. (This happens before scoring.)" */
+const FROZEN_FORTRESS = "UNL-212";
+const FROZEN_FORTRESS_DAMAGE = 1;
+/** Dusk Rose Lab — "At the start of your Beginning Phase, you may kill a unit
+ *  you control here to draw 1. (This happens before scoring.)" */
+const DUSK_ROSE_LAB = "UNL-209";
 
 /** Monastery of Hirana — "When you conquer here, you may spend a buff to draw 1." */
 const MONASTERY_OF_HIRANA = "OGN-282";
@@ -949,6 +959,32 @@ export const battlefieldDecisions: Record<string, DecisionDefinition> = {
       // the same call Fight or Flight records.
       optionId === "decline" ? state : recallUnitToBase(state, optionId),
   },
+  [`${DUSK_ROSE_LAB}-kill`]: {
+    prompt: () => "Dusk Rose Lab: kill a unit you control here to draw 1?",
+    options: (state, d) => {
+      if (d.battlefieldId === undefined) return [];
+      const mine = ownUnitsAt(state, d.playerIndex, d.battlefieldId);
+      // No units here is no question — `advanceDecisions` retires a lone Decline
+      // without prompting, so an empty board costs the player nothing to look at.
+      if (mine.length === 0) return [];
+      return [
+        { id: "decline", label: "Decline" },
+        ...mine.map((u) => ({ id: u.instanceId, label: `Kill ${u.name} to draw 1`, instanceId: u.instanceId })),
+      ];
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline") return state;
+      // The kill is the COST of the draw, so it happens first and the draw is
+      // conditional on it having happened — `destroyUnit` no-ops on a unit that
+      // has since gone, and drawing anyway would be the card for free.
+      //
+      // `destroyUnit`, not a quiet removal: this is a KILL, so the unit's own
+      // [Deathknell] fires and every death-watch sees it.
+      const killed = destroyUnit(state, optionId);
+      if (killed === state) return state;
+      return drawCards(killed, d.playerIndex, 1);
+    },
+  },
   [`${PROTECTIVE_SANDS}-draw`]: {
     prompt: () => "Protective Sands: pay 1 Energy to draw 1?",
     options: (state, d) =>
@@ -1329,14 +1365,42 @@ export const battlefieldDecisions: Record<string, DecisionDefinition> = {
  * runes, so it is unreachable rather than merely unlikely. Measured, not assumed.
  */
 export function runBattlefieldBeginningPhase(state: GameState, playerIndex: 0 | 1): GameState {
-  if (state.turnNumber !== 1) return state;
+  // **The turn-1 guard belongs to the two cards that print it, not to this
+  // function.** Obelisk of Power and The Arena's Greatest both say "each player's
+  // FIRST Beginning Phase"; Frozen Fortress and Dusk Rose Lab below say every
+  // one. A guard at the top of the function was right while those two were the
+  // only entries and would have made both new cards fire exactly once per game.
+  const firstBeginningPhase = state.turnNumber === 1;
   let next = state;
   for (const bf of state.battlefields) {
-    if (bf.defId === OBELISK_OF_POWER) next = channelRunes(next, playerIndex, 1);
-    if (bf.defId === THE_ARENAS_GREATEST) {
+    if (bf.defId === OBELISK_OF_POWER && firstBeginningPhase) next = channelRunes(next, playerIndex, 1);
+    if (bf.defId === THE_ARENAS_GREATEST && firstBeginningPhase) {
       // Through `gainPoints`, the single choke point every point-gain goes through
       // so Tianna Crownguard's "opponents can't gain points" reaches it.
       next = gainPoints(next, playerIndex, 1);
+    }
+    // Frozen Fortress — "At the start of EACH player's Beginning Phase, deal 1 to
+    // each unit here." Both sides, every turn, and MANDATORY, so it asks nothing.
+    //
+    // Ids are read up front and reduced over, the shape every mass-damage site
+    // here uses: `dealDamage` runs the whole death funnel, so a unit that dies to
+    // the first point of damage takes its [Deathknell] with it and the list this
+    // loop is walking would otherwise go stale underneath it.
+    if (bf.defId === FROZEN_FORTRESS) {
+      const ids = unitsAt(next, bf.id).map(({ unit }) => unit.instanceId);
+      next = ids.reduce((acc, id) => dealDamage(acc, playerIndex, id, FROZEN_FORTRESS_DAMAGE), next);
+    }
+    // Dusk Rose Lab — "At the start of YOUR Beginning Phase, you may kill a unit
+    // you control here to draw 1."
+    //
+    // **"YOUR", where Frozen Fortress one line up says "each player's".** Two
+    // cards in one set, printed differently on purpose, so this is read as the
+    // battlefield's CONTROLLER rather than as whoever's phase it is — otherwise
+    // the two phrasings would mean the same thing. Recorded in
+    // docs/rules-conformance.md as Unverified: it is the reading that makes the
+    // contrast meaningful, not one the rules settle outright.
+    if (bf.defId === DUSK_ROSE_LAB && next.battlefields.find((b) => b.id === bf.id)?.controllerId === next.players[playerIndex].id) {
+      next = parkDecision(next, { kind: `${DUSK_ROSE_LAB}-kill`, playerIndex, battlefieldId: bf.id });
     }
   }
   return next;
@@ -1364,7 +1428,7 @@ function channelRunes(state: GameState, playerIndex: 0 | 1, count: number): Game
  *  Item — so the completeness gate has to be told about them separately, which
  *  is exactly what this is for. */
 export function beginningPhaseBattlefieldDefIds(): string[] {
-  return [OBELISK_OF_POWER, THE_ARENAS_GREATEST];
+  return [OBELISK_OF_POWER, THE_ARENAS_GREATEST, FROZEN_FORTRESS, DUSK_ROSE_LAB];
 }
 
 /** Every unit standing at a battlefield, on both sides, with whose it is. */
