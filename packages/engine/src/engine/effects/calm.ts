@@ -17,6 +17,7 @@ import type { CardInstance, UnitInstance } from "../../model/card.js";
 import type { AnyUnitLocation } from "../target-lookup.js";
 import {
   addBuff,
+  recycleTopCard,
   dealDamageToEnemyUnitsAtBattlefield,
   recordModeUsed,
   channelRunesExhausted,
@@ -1780,14 +1781,8 @@ function ornnLook(state: GameState, playerIndex: 0 | 1): GameState {
 /** "Recycle the top card" — the bottom of the Main Deck (416/416.1), never the
  *  trash. Held through `holdCardsRecycled` so Karma - Channeler sees it, which
  *  is the whole reason this is not written as a bare deck rotation. */
-function recycleTopCard(state: GameState, playerIndex: 0 | 1): GameState {
-  const players = [...state.players] as [PlayerState, PlayerState];
-  const owner = players[playerIndex];
-  const top = owner.deck[0];
-  if (!top) return state;
-  players[playerIndex] = { ...owner, deck: [...owner.deck.slice(1), top] };
-  return holdCardsRecycled({ ...state, players }, playerIndex, 1);
-}
+/** Shared out of `effect-helpers.ts` — see its note on why the two private
+ *  copies were promoted. */
 
 /** The cards Guardian of the Passage could take back — "a unit OR GEAR from
  *  your trash", so a Spell in there is not on offer. */

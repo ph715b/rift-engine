@@ -522,6 +522,7 @@ export function runEnd(state: GameState): GameState {
     nonTokenUnitSurchargeThisTurn: 0,
     // Piltovan Forge's once-per-turn gear-ability discount, cleared beside it.
     gearAbilitiesActivatedThisTurn: 0,
+    energySpentOnLastPlay: 0,
     unitsEnterReadyThisTurn: false,
     restrictedSpellEnergy: 0,
     restrictedUnitEnergy: 0,

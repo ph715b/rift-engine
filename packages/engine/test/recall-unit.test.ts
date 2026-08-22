@@ -56,6 +56,7 @@ function makePlayer(id: string): PlayerState {
     starSpringUsedBattlefieldIds: [],
     nonTokenUnitSurchargeThisTurn: 0,
     gearAbilitiesActivatedThisTurn: 0,
+    energySpentOnLastPlay: 0,
     deck: [],
     hand: [],
     trash: [],

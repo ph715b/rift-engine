@@ -13,6 +13,7 @@ import type {
 import type { DecisionDefinition } from "../decisions.js";
 import {
   banishCard,
+  recycleTopCard,
   banishUnitFromPlay,
   burn,
   burnCards,
@@ -1287,14 +1288,8 @@ function predict(state: GameState, playerIndex: 0 | 1, kind: string): GameState 
  * are four lines around one funnel call, so the thing that could drift — what
  * "recycle" fires — is the funnel and not the copy.
  */
-function recycleTopCard(state: GameState, playerIndex: 0 | 1): GameState {
-  const owner = state.players[playerIndex];
-  const top = owner.deck[0];
-  if (!top) return state;
-  const players = [...state.players] as [PlayerState, PlayerState];
-  players[playerIndex] = { ...owner, deck: [...owner.deck.slice(1), top] };
-  return holdCardsRecycled({ ...state, players }, playerIndex, 1);
-}
+/** Shared out of `effect-helpers.ts` — see its note on why the two private
+ *  copies were promoted. */
 
 /** Fizz - Trickster's ceiling — "a spell from your trash with Energy cost no
  *  more than [3]". Only the ENERGY is capped; his text names no Power limit,

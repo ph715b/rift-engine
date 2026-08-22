@@ -2119,6 +2119,27 @@ export function recycleUnitsFromTrash(state: GameState, playerIndex: 0 | 1, coun
  * actually move?") is the same at all of them. RUNES are deliberately not a
  * caller: the card's own reminder text says so.
  */
+/**
+ * Puts the top card of a deck on the BOTTOM — the "you may recycle it" half of
+ * `[Predict]` and of every look-at-the-top effect.
+ *
+ * **Promoted here from TWO private copies**, one in `effects/chaos.ts` and one in
+ * `effects/calm.ts`, when Forgotten Library needed a third. They were already
+ * byte-identical bar the order of two lines; a third copy is exactly the drift
+ * CLAUDE.md records for any list or helper this engine keeps in several places.
+ *
+ * Goes through `holdCardsRecycled` so a card that watches recycling (416/425)
+ * sees it, which is the reason this is a helper at all rather than a splice.
+ */
+export function recycleTopCard(state: GameState, playerIndex: 0 | 1): GameState {
+  const owner = state.players[playerIndex];
+  const top = owner.deck[0];
+  if (!top) return state;
+  const players = [...state.players] as [PlayerState, PlayerState];
+  players[playerIndex] = { ...owner, deck: [...owner.deck.slice(1), top] };
+  return holdCardsRecycled({ ...state, players }, playerIndex, 1);
+}
+
 export function holdCardsRecycled(state: GameState, ownerIndex: 0 | 1, count: number): GameState {
   if (count <= 0) return state;
   return holdEventTrigger(state, { kind: "cardsRecycled", ownerIndex, count });

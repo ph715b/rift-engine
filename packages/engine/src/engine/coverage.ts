@@ -26,6 +26,8 @@ import { boardRestrictionDefIds } from "./board-restrictions.js";
 import { hideCostDefIds } from "./hidden.js";
 import { topOfDeckDefIds } from "./top-of-deck.js";
 import { battlefieldAbilityDefIds, beginningPhaseBattlefieldDefIds } from "./battlefield-abilities.js";
+import { deathReplacementBattlefieldDefIds } from "./death-ward.js";
+import { abilityDiscountBattlefieldDefIds } from "./activated-abilities.js";
 import { continuousBattlefieldDefIds, moveRestrictionDefIds } from "./battlefield-continuous.js";
 import { turnManagerDefIds } from "./turn-manager.js";
 import { chooseRestrictionDefIds } from "./target-lookup.js";
@@ -384,6 +386,17 @@ const COVERAGE_SOURCES: ReadonlyArray<{ label: string; defIds: () => string[] }>
   { label: "battlefield abilities", defIds: battlefieldAbilityDefIds },
   { label: "beginning-phase battlefields", defIds: beginningPhaseBattlefieldDefIds },
   { label: "continuous battlefields", defIds: continuousBattlefieldDefIds },
+  // The two battlefields whose text is neither triggered, continuous nor
+  // Beginning-Phase: Altar of Blood is a DEATH REPLACEMENT (`death-ward.ts`,
+  // beside the Armory's and Sett's offers, since nothing dispatches on "a unit
+  // would die" but `killUnit`), and Risen Altar / Piltovan Forge DISCOUNT other
+  // abilities' costs and so have no ability entry of their own anywhere.
+  //
+  // Both needed their own claim for the reason `battlefield-coverage.test.ts`
+  // records twice: a battlefield implemented in a way no source names reads, to
+  // every audit in this repo, as a battlefield that does nothing.
+  { label: "battlefield death replacements", defIds: deathReplacementBattlefieldDefIds },
+  { label: "battlefield ability discounts", defIds: abilityDiscountBattlefieldDefIds },
   // Minotaur Reckoner is a UNIT whose text is a global move restriction, so it
   // lives in battlefield-continuous.ts beside the one door that answers "may
   // this unit go home" — and it needs its own claim, since the battlefield
@@ -1088,7 +1101,7 @@ export const COMPLETE_SETS: readonly string[] = ["OGN", "OGS", "SFD", "UNL", "VE
  * So: one list per thing being gated. `test/battlefield-coverage.test.ts` reads
  * this one, and it starts protecting a set the moment it is added.
  */
-export const COMPLETE_BATTLEFIELD_SETS: readonly string[] = ["OGN", "SFD"];
+export const COMPLETE_BATTLEFIELD_SETS: readonly string[] = ["OGN", "SFD", "UNL"];
 
 /** How much of one set is implemented. `unimplemented`/`partial` hold
  *  "OGN-001 (Name)" strings rather than counts, because naming the cards is

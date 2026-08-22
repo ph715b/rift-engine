@@ -587,6 +587,14 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
     // modifier is asked several times per play (enumeration, validation, this
     // file's own float math) and must give the same answer each time, so the
     // thing it reads cannot move until the play is priced and paid.
+    // Forgotten Library's "if you SPENT [4 Energy] or more". Written from the
+    // same `modifiedEnergy` this block actually pays, plus the additional cost —
+    // "spent" is what left the pool, not what the card printed.
+    //
+    // Recorded rather than left to be re-derived, because the battlefield's
+    // trigger is HELD: by the time it resolves the response window can contain
+    // another play, and 383 fixes the condition at the moment of the event.
+    energySpentOnLastPlay: modifiedEnergy + additional.energy,
     gearPlayedThisTurn: card.kind === "Gear" ? actor.gearPlayedThisTurn + 1 : actor.gearPlayedThisTurn,
     // Swain, Visionary's "you've played a non-token unit ... this turn". Bumped
     // here beside the gear counter and for the same reason, and `isToken` is

@@ -15,6 +15,7 @@ import {
   relocateToBaseUnchanged,
   payEnergyFromPool,
   readyPermanent,
+  recycleTopCard,
   spendBuff,
 } from "./effect-helpers.js";
 import {
@@ -34,6 +35,7 @@ import { fileIntoTrash } from "./effect-helpers.js";
 import { burn, payPowerFromChanneled, recallUnitToBase, returnUnitToHand } from "./effect-helpers.js";
 import { BIRD_TOKEN, SAND_SOLDIER_TOKEN, placeToken, type TokenSpec } from "./token.js";
 import {
+  offerTopOfDeckBanish,
   revealedFromDeck,
   voidHatchlingAnswer,
   voidHatchlingGate,
@@ -225,6 +227,10 @@ const GRAND_PLAZA_UNITS_TO_WIN = 7;
 /** Amateur Recital — "When you hold here, you may move a unit at a battlefield
  *  to its base." */
 const AMATEUR_RECITAL = "UNL-207";
+/** The Academy — "When you hold here, give your next spell this turn [Repeat]
+ *  equal to its base cost." */
+const THE_ACADEMY = "UNL-216";
+
 /** Vaults of Helia — "When you hold here, your non-token units cost [1 Energy]
  *  more to play this turn." */
 const VAULTS_OF_HELIA = "UNL-219";
@@ -244,6 +250,11 @@ const PROTECTIVE_SANDS_ENERGY = 1;
  *  damage, play a 1 [Might] Bird unit token with [Deflect]." */
 const TRAPPING_GROUNDS = "UNL-217";
 const TRAPPING_GROUNDS_EXCESS = 3;
+
+/** Forgotten Library — "While you control this battlefield, when you play a
+ *  spell, if you spent [4 Energy] or more, [Predict]." */
+const FORGOTTEN_LIBRARY = "UNL-211";
+const FORGOTTEN_LIBRARY_ENERGY = 4;
 
 /** Abandoned Hall — "When a player plays a spell, they may give a unit they
  *  control here +1 [Might] this turn." */
@@ -272,6 +283,33 @@ const RIPPERS_BAY_ENERGY = 1;
  *
  * Left for its own change rather than half-built, and named here so the gap is a
  * decision rather than an oversight. The coverage gate lists it as remaining.
+ */
+
+/**
+ * **VEN-157 Dragon Roost is deliberately NOT implemented, and it is the LAST of
+ * the 25.**
+ *
+ * "Any player may pay [2 rainbow] as an additional cost to play a Dragon. If they
+ * do, they play it to this battlefield."
+ *
+ * Its first half is nearly free: `OptionalPowerCostSpec` already models "you may
+ * pay N as an additional cost", already carries a CONDITION (Crescent Guardian's
+ * "if you've played a spell this turn"), and `optionalPowerCostOf` is the single
+ * function the enumerator and the validator both ask. A board-derived entry —
+ * "this card is a Dragon and a Dragon Roost is in play" — slots in beside the
+ * table rows.
+ *
+ * **The second half is the blocker.** "If they do, they PLAY IT TO THIS
+ * BATTLEFIELD" makes the destination a consequence of the payment, and
+ * destinations are chosen in `legal-actions`' variant fan-out BEFORE the optional
+ * cost is priced. Making the paid variant force one means the fan-out has to know
+ * about the cost, and a version where the enumerator offers a destination the
+ * validator then refuses is precisely the offered-then-refused bug this codebase
+ * has produced three times and works hardest to avoid.
+ *
+ * Left for its own change rather than half-built. The coverage gate lists it as
+ * remaining, which is the honest report — and it is why VEN stays out of
+ * `COMPLETE_BATTLEFIELD_SETS` while UNL goes in.
  */
 
 /** Star Spring — "The FIRST time a player plays a non-token unit here each turn,
@@ -564,6 +602,47 @@ export const BATTLEFIELD_TRIGGERS: Record<string, readonly BattlefieldTriggerDef
         }),
     },
   ],
+  [FORGOTTEN_LIBRARY]: [
+    {
+      // "While you CONTROL this battlefield, when you play a spell, if you spent
+      // [4 Energy] or more, [Predict]."
+      //
+      // THREE conditions, and two of them narrow it hard compared with Abandoned
+      // Hall, which shares the moment:
+      //
+      //  - **"while you control this battlefield"** — the controller only, so an
+      //    opponent's spell never fires it and neither does yours while they hold
+      //    it. Abandoned Hall has no such clause and fires for both players.
+      //  - **"if you spent [4 Energy] or more"** — read off
+      //    `PlayerState.energySpentOnLastPlay`, which `execute-play-card` writes
+      //    from the same figure it actually pays. It cannot be re-derived at
+      //    resolution: this trigger is HELD, so the response window can contain
+      //    another play, and 383 fixes the condition at the moment of the event.
+      //
+      // MANDATORY once both hold — no "you may" on the [Predict] itself — so the
+      // question that follows is the LOOK, not a yes/no about whether to look.
+      on: "spellPlayed",
+      applies: (state, event) =>
+        state.battlefields.find((b) => b.id === event.battlefieldId)?.controllerId ===
+          state.players[event.playerIndex].id &&
+        state.players[event.playerIndex].energySpentOnLastPlay >= FORGOTTEN_LIBRARY_ENERGY,
+      resolve: (state, event) => {
+        // `[Predict]` — "look at the top card of your Main Deck. You may recycle
+        // it." An empty deck asks nothing rather than parking a question whose
+        // only answer is decline (359.3.e.11).
+        //
+        // `offerTopOfDeckBanish` goes FIRST, the FIFO convention every other look
+        // site here keeps: Nocturne - Horrifying's "as you LOOK AT me" is offered
+        // before what the looker does next.
+        const top = state.players[event.playerIndex].deck[0];
+        if (!top) return state;
+        return parkDecision(offerTopOfDeckBanish(state, event.playerIndex, [top]), {
+          kind: `${FORGOTTEN_LIBRARY}-predict`,
+          playerIndex: event.playerIndex,
+        });
+      },
+    },
+  ],
   [RIPPERS_BAY]: [
     {
       // "When a unit here is returned to a player's hand, THAT PLAYER may pay
@@ -692,6 +771,37 @@ export const BATTLEFIELD_TRIGGERS: Record<string, readonly BattlefieldTriggerDef
       on: "hold",
       resolve: (state, event) =>
         parkDecision(state, { kind: `${AMATEUR_RECITAL}-move`, playerIndex: event.playerIndex }),
+    },
+  ],
+  [THE_ACADEMY]: [
+    {
+      // "When you hold here, give your NEXT SPELL this turn [Repeat] equal to its
+      // BASE COST."
+      //
+      // **This needed no new machinery at all** — Temporal Portal already prints
+      // the same clause, and `PlayerState.nextSpellRepeatGrants` plus
+      // `card-effects.grantedRepeatCostOf` are its implementation.
+      // `grantedRepeatCostOf` returns `{ energy: card.energyCost, power:
+      // card.powerCost }`, which IS "equal to its base cost", so the whole card is
+      // arming the counter the same way `activated-abilities.ts` does for the
+      // Portal.
+      //
+      // ADDED rather than assigned, for the reason that field's own doc gives:
+      // two Portals armed before one spell grant two instances, and a hold
+      // beside one must stack the same way.
+      //
+      // The counter is spent by the next SPELL PLAYED whether or not the granted
+      // cost is paid — "the next spell you play" is spent by playing, not by
+      // paying — and `execute-play-card` already clears it on exactly that event.
+      // "This turn" needs no separate expiry for the same reason.
+      //
+      // MANDATORY, so it asks nothing.
+      on: "hold",
+      resolve: (state, event) =>
+        updatePlayer(state, event.playerIndex, (p) => ({
+          ...p,
+          nextSpellRepeatGrants: p.nextSpellRepeatGrants + 1,
+        })),
     },
   ],
   [VAULTS_OF_HELIA]: [
@@ -1253,6 +1363,22 @@ export const battlefieldDecisions: Record<string, DecisionDefinition> = {
       // shared helper the rest of this table uses, so Mel's additional -1 and
       // every other modifier on a this-turn grant reach this card too.
       optionId === "decline" ? state : giveMightThisTurnToOwnUnit(state, d.playerIndex, optionId, 1),
+  },
+  [`${FORGOTTEN_LIBRARY}-predict`]: {
+    // `[Predict]`'s look-and-recycle. The same two options every other Predict in
+    // the pool offers, and the shared `recycleTopCard` does the work — promoted
+    // out of two private copies in `effects/chaos.ts` and `effects/calm.ts` when
+    // this needed a third.
+    prompt: () => "Forgotten Library: recycle the top card of your Main Deck?",
+    options: (state, d) => {
+      const top = state.players[d.playerIndex].deck[0];
+      if (!top) return []; // the deck emptied while this waited — 422
+      return [
+        { id: "keep", label: `Keep ${top.name} on top`, instanceId: top.instanceId },
+        { id: "recycle", label: `Recycle ${top.name}`, instanceId: top.instanceId },
+      ];
+    },
+    resolve: (state, d, optionId) => (optionId === "recycle" ? recycleTopCard(state, d.playerIndex) : state),
   },
   [`${RIPPERS_BAY}-channel`]: {
     prompt: () => "Ripper's Bay: pay 1 Energy to channel 1 rune exhausted?",

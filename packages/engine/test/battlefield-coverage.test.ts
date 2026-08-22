@@ -96,10 +96,15 @@ describe("every printed battlefield does something", () => {
       ["UNL", 15],
       ["VEN", 10],
     ]);
-    // The gate is only worth something while it actually gates something. All 39
-    // now: OGN's 24 have been hard-gated since this file was written, and SFD's
-    // 15 joined them when Forge of the Fluft — the last one — landed.
-    expect(gated.length, "no battlefield is under a hard gate — COMPLETE_BATTLEFIELD_SETS has lost its subject").toBe(39);
+    // The gate is only worth something while it actually gates something. **54
+    // now**: OGN's 24 have been hard-gated since this file was written, SFD's 15
+    // joined them when Forge of the Fluft landed, and UNL's 15 joined on
+    // 2026-08-22 when The Academy finished the set.
+    //
+    // VEN's 10 are deliberately still out — VEN-157 Dragon Roost is unwritten,
+    // and the note in `battlefield-abilities.ts` says why. The test below is what
+    // will ask for VEN's promotion the moment it lands.
+    expect(gated.length, "no battlefield is under a hard gate — COMPLETE_BATTLEFIELD_SETS has lost its subject").toBe(54);
   });
 
   it("every battlefield of a COMPLETE set has an implementation, and the failure NAMES it", () => {

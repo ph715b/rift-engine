@@ -555,6 +555,25 @@ export interface PlayerState {
    * "This turn" state, cleared by `runEnd` for both players with the rest.
    */
   gearAbilitiesActivatedThisTurn: number;
+  /**
+   * What this player's most recent play COST in Energy, after every modifier —
+   * Forgotten Library's "when you play a spell, IF YOU SPENT [4 Energy] or more".
+   *
+   * **Recorded rather than re-derived, because 383 fixes the condition at the
+   * moment of the event.** The battlefield's trigger is HELD, so by the time it
+   * resolves the response window can contain another play; asking "what did I
+   * spend" then would answer about the wrong card. `execute-play-card` writes it
+   * as it pays, from the same `modifiedEnergy` it actually spends, so the two can
+   * never disagree.
+   *
+   * The ADDITIONAL cost is included: "spent" is what left the pool, not what the
+   * card printed.
+   *
+   * Not cleared by `runEnd` — it is a fact about the last play rather than a
+   * this-turn tally, and every reader is a trigger that fires during the play
+   * itself.
+   */
+  energySpentOnLastPlay: number;
   deck: CardInstance[];
   hand: CardInstance[];
   trash: CardInstance[];

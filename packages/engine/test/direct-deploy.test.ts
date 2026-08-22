@@ -58,6 +58,7 @@ function makePlayer(id: string, overrides: Partial<PlayerState> = {}): PlayerSta
     starSpringUsedBattlefieldIds: [],
     nonTokenUnitSurchargeThisTurn: 0,
     gearAbilitiesActivatedThisTurn: 0,
+    energySpentOnLastPlay: 0,
     deck: [],
     hand: [],
     trash: [],
