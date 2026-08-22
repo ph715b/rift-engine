@@ -531,6 +531,18 @@ export interface PlayerState {
    * "This turn" state, cleared by `runEnd` for BOTH players with the rest.
    */
   starSpringUsedBattlefieldIds: string[];
+  /**
+   * Vaults of Helia's tax — "when you hold here, your NON-TOKEN units cost
+   * [1 Energy] more to play this turn."
+   *
+   * The pool's first cost INCREASE a player inflicts on themselves, and the
+   * reason it is a number rather than a flag is that two Vaults can be held in
+   * one turn (each player brings their own three battlefields, and a mirror is
+   * legal) — a boolean would silently cap the tax at one.
+   *
+   * "This turn" state, cleared by `runEnd` for both players with the rest.
+   */
+  nonTokenUnitSurchargeThisTurn: number;
   deck: CardInstance[];
   hand: CardInstance[];
   trash: CardInstance[];

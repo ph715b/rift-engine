@@ -10,6 +10,7 @@ import {
 } from "../src/engine/battlefield-abilities.js";
 import { continuousBattlefieldDefIds } from "../src/engine/battlefield-continuous.js";
 import { activatedAbilityDefIds } from "../src/engine/activated-abilities.js";
+import { deathReplacementBattlefieldDefIds } from "../src/engine/death-ward.js";
 import { COMPLETE_BATTLEFIELD_SETS, implementingModule, setCodeOf } from "../src/engine/coverage.js";
 
 /**
@@ -43,14 +44,23 @@ describe("every printed battlefield does something", () => {
   const inProgress = defs.filter((d) => !COMPLETE_BATTLEFIELD_SETS.includes(setCodeOf(d.id)));
 
   /**
-   * The FOUR places a battlefield's printed text can be implemented.
+   * The FIVE places a battlefield's printed text can be implemented.
    *
    * The fourth is Forge of the Fluft, whose text is an ACTIVATED ability its
    * controller's Legend has — so it is keyed by the battlefield's own defId in
    * `ACTIVATED_ABILITIES` and offered through `abilitiesAvailableTo`, the same
-   * borrow list Heimerdinger uses. This gate is the only thing that can see a
-   * battlefield at all, so a source it does not know about reads as a
-   * battlefield that does nothing.
+   * borrow list Heimerdinger uses.
+   *
+   * The fifth is Altar of Blood, whose text is a DEATH REPLACEMENT: "if a unit
+   * here would die during combat, its controller may pay [3 rainbow] to heal it,
+   * exhaust it, and recall it instead". Nothing dispatches on "a unit would die"
+   * except `killUnit`, so it lives in `death-ward.ts` beside the Armory's and
+   * Sett's offers rather than in any of the tables above.
+   *
+   * **This gate is the only thing that can see a battlefield at all, so a source
+   * it does not know about reads as a battlefield that does nothing** — which is
+   * exactly what happened when Altar of Blood landed and this list still had four
+   * entries.
    */
   const implemented = new Map<string, string>([
     ...battlefieldAbilityDefIds().map((id) => [id, "triggered"] as const),
@@ -59,6 +69,7 @@ describe("every printed battlefield does something", () => {
     ...activatedAbilityDefIds()
       .filter((id) => defs.some((d) => d.id === id))
       .map((id) => [id, "granted activated ability"] as const),
+    ...deathReplacementBattlefieldDefIds().map((id) => [id, "death replacement"] as const),
   ]);
 
   it("the pool is 64 battlefields — 24 OGN, 15 SFD, 15 UNL, 10 VEN, and OGS prints none", () => {

@@ -77,6 +77,7 @@ export function buildPlayerFromDeckList(
     readyRunesAtEndOfTurn: 0,
     spellChoiceDrawnBattlefieldIds: [],
     starSpringUsedBattlefieldIds: [],
+    nonTokenUnitSurchargeThisTurn: 0,
     deck,
     hand: [],
     trash: [],

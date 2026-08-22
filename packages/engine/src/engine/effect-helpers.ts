@@ -12,6 +12,7 @@ import {
   freeDeathReplacement,
   hasHourglass,
   isDeathWarded,
+  offerAltarOfBlood,
   offerPaidDeathWard,
   reviveToBase,
   reviveWithDeathWard,
@@ -247,6 +248,21 @@ export function killUnit(
   const wardOffer = offerPaidDeathWard(state, death);
   if (wardOffer) return wardOffer;
 
+  // Altar of Blood (UNL-206) — the pool's first POSITIONAL death replacement, and
+  // its first from a BATTLEFIELD. Offered after the Armory's armed ward for the
+  // reason that one precedes Sett's: the Armory was bought in advance for THIS
+  // unit, and a free-standing offer consuming a death it was armed for would
+  // waste it.
+  //
+  // **In BOTH tails, and that is deliberate.** This block appears twice — here in
+  // `killUnit` and again in `resumeDeathAfterHourglass`, which is where a unit
+  // that LOST the Hourglass batch's choice resumes. A unit that was not chosen
+  // must still be offered everything it would have been offered had the Hourglass
+  // never been on the board; leaving the Altar out of the resume path would make
+  // owning an Hourglass silently cost your other units their Altar save.
+  const altarOffer = offerAltarOfBlood(state, death);
+  if (altarOffer) return altarOffer;
+
   const offer = offerDeathReplacement(state, death);
   if (offer) return offer;
 
@@ -266,6 +282,21 @@ export function killUnit(
 export function resumeDeathAfterHourglass(state: GameState, death: PendingDeath): GameState {
   const wardOffer = offerPaidDeathWard(state, death);
   if (wardOffer) return wardOffer;
+
+  // Altar of Blood (UNL-206) — the pool's first POSITIONAL death replacement, and
+  // its first from a BATTLEFIELD. Offered after the Armory's armed ward for the
+  // reason that one precedes Sett's: the Armory was bought in advance for THIS
+  // unit, and a free-standing offer consuming a death it was armed for would
+  // waste it.
+  //
+  // **In BOTH tails, and that is deliberate.** This block appears twice — here in
+  // `killUnit` and again in `resumeDeathAfterHourglass`, which is where a unit
+  // that LOST the Hourglass batch's choice resumes. A unit that was not chosen
+  // must still be offered everything it would have been offered had the Hourglass
+  // never been on the board; leaving the Altar out of the resume path would make
+  // owning an Hourglass silently cost your other units their Altar save.
+  const altarOffer = offerAltarOfBlood(state, death);
+  if (altarOffer) return altarOffer;
 
   const offer = offerDeathReplacement(state, death);
   if (offer) return offer;

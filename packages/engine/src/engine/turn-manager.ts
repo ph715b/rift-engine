@@ -518,6 +518,8 @@ export function runEnd(state: GameState): GameState {
     // for the same reason — the limit is per player, and both players' turns end
     // in this same sweep.
     starSpringUsedBattlefieldIds: [] as string[],
+    // Vaults of Helia's this-turn tax, cleared beside it.
+    nonTokenUnitSurchargeThisTurn: 0,
     unitsEnterReadyThisTurn: false,
     restrictedSpellEnergy: 0,
     restrictedUnitEnergy: 0,

@@ -192,6 +192,78 @@ export function offerPaidDeathWard(state: GameState, death: PendingDeath): GameS
   });
 }
 
+/**
+ * Altar of Blood (UNL-206) — "If a unit here would die DURING COMBAT, its
+ * controller may pay [3 rainbow] to heal it, exhaust it, and recall it instead."
+ *
+ * **The pool's first POSITIONAL death replacement, and its first from a
+ * battlefield.** Every other one is sourced from a card its controller owns —
+ * Highlander's armed ward, Sett's legend ability, the Hourglass in play, Guardian
+ * Angel attached, Soraka standing by. This one is a property of WHERE the unit
+ * died, so it reaches both players and neither of them has to own anything.
+ *
+ * Two conditions, and both are already on `PendingDeath` because the death funnel
+ * has carried them since Soraka:
+ *
+ *  - **HERE** — `death.battlefieldId`, so a unit dying in base is never offered
+ *    it however the battlefield is doing.
+ *  - **DURING COMBAT** — `death.diedInCombat`, set by `combat.processDefeated`
+ *    alone. A unit killed HERE by a Spell is not covered, which is the whole
+ *    shape of the card: it is insurance against the damage step, not against
+ *    removal.
+ *
+ * `[3 rainbow]` is three Power of any domain — `payPowerFromChanneled` with a
+ * `null` domain, the same call Power Nexus makes. Checked before parking, the
+ * 416.3 discipline every offer here follows.
+ */
+const ALTAR_OF_BLOOD = "UNL-206";
+export const ALTAR_OF_BLOOD_PIPS = 3;
+export const ALTAR_OF_BLOOD_SAVE = `${ALTAR_OF_BLOOD}-save`;
+
+/** For coverage — the battlefield this module implements. Its own export rather
+ *  than a row in `deathReplacementDefIds`, because that list is about CARDS and
+ *  `battlefield-coverage.test.ts` is the only gate that can see a battlefield. */
+export function deathReplacementBattlefieldDefIds(): string[] {
+  return [ALTAR_OF_BLOOD];
+}
+
+/** Is the battlefield this unit died at an Altar of Blood? */
+function diedAtAltarOfBlood(state: GameState, death: PendingDeath): boolean {
+  if (death.battlefieldId === undefined || death.diedInCombat !== true) return false;
+  return state.battlefields.find((b) => b.id === death.battlefieldId)?.defId === ALTAR_OF_BLOOD;
+}
+
+/**
+ * Offers the Altar's save, or `undefined` when it does not apply — the same shape
+ * `offerPaidDeathWard` has, and it sits beside it in `killUnit` for the same
+ * reason: both are OPTIONAL and PAID, so neither can be preferred on the
+ * "it isn't a choice" ground the Hourglass wins on.
+ */
+export function offerAltarOfBlood(state: GameState, death: PendingDeath): GameState | undefined {
+  if (!diedAtAltarOfBlood(state, death)) return undefined;
+  // **`computeAutoPayment`, not `payPowerFromChanneled`**, and the reason is a
+  // cycle rather than a preference: the payer lives in `effect-helpers`, which
+  // imports THIS module, so asking it here would close the loop. The Armory's
+  // offer one function up makes the same call for the same reason.
+  //
+  // `null` domain — any three pips. `null` is this function's failure value, and
+  // comparing against `undefined` instead is the mistake `offerPaidDeathWard`
+  // records getting wrong once.
+  if (computeAutoPayment(state.players[death.ownerIndex].channeled, 0, ALTAR_OF_BLOOD_PIPS, null) === null) {
+    return undefined;
+  }
+
+  const held: GameState = {
+    ...state,
+    unitsAwaitingDeathReplacement: [...state.unitsAwaitingDeathReplacement, death],
+  };
+  return parkDecision(held, {
+    kind: ALTAR_OF_BLOOD_SAVE,
+    playerIndex: death.ownerIndex,
+    targetInstanceId: death.unit.instanceId,
+  });
+}
+
 /** The question Zhonya's Hourglass parks when a BATCH of deaths gives its
  *  controller a choice, written once because `withSimultaneousDeaths` raises it
  *  and `effects/calm.ts` answers it. */

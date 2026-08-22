@@ -1383,6 +1383,30 @@ export function modifiedEnergyCost(
   // reason this function's own Firebrand note gives.
   if (cardKind === "Gear") cost = Math.max(0, cost - firstGearDiscountFor(state, playerIndex));
 
+  // **Vaults of Helia (UNL-219)** — "when you hold here, your NON-TOKEN units cost
+  // [1 Energy] more to play this turn."
+  //
+  // The pool's first cost INCREASE that a player inflicts on themselves, and the
+  // first this-turn one: `PlayerState.nonTokenUnitSurchargeThisTurn` is armed by
+  // the hold trigger and cleared by `runEnd` with every other "this turn" field.
+  //
+  // NON-TOKEN, so a Recruit played the same turn is unaffected — `isToken` is the
+  // same flag `firstGearDiscountFor` reads one line up, and the same distinction
+  // 185 vs 350.2 draws everywhere else.
+  //
+  // **No floor, because a surcharge has none to clamp against** — the reasoning
+  // Vex's tax branch above states. Added LAST so it is not eaten by a discount
+  // that was computed against the printed price.
+  // The token test is by DEFID PREFIX — `token.ts` stamps `TOKEN-<TAG>` and
+  // `setCodeOf("TOKEN-RECRUIT")` already pins that convention. **It is
+  // belt-and-braces**: a token is PLACED by `placeToken`, never played, so
+  // nothing with such a defId reaches this pricer today. Written anyway because
+  // the card draws the distinction, and a later "play a token from hand" effect
+  // would otherwise inherit a surcharge the card excludes.
+  if (cardKind === "Unit" && defId?.startsWith("TOKEN-") !== true) {
+    cost += player.nonTokenUnitSurchargeThisTurn;
+  }
+
   return cost;
 }
 

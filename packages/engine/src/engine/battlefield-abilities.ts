@@ -17,11 +17,19 @@ import {
   readyPermanent,
   spendBuff,
 } from "./effect-helpers.js";
+import {
+  ALTAR_OF_BLOOD_SAVE,
+  ALTAR_OF_BLOOD_PIPS,
+  deathReplacementBattlefieldDefIds,
+  pendingDeathFor,
+  releasePendingDeath,
+  reviveToBase,
+} from "./death-ward.js";
 import { placeRecruitToken, placeGoldTokens } from "./token.js";
 import { detachEquipment, isEquipmentGear } from "./equipment.js";
 import { isMighty } from "./granted-keywords.js";
 import { eventTriggerFor, type Listener } from "./triggers.js";
-import { gainPoints } from "./effect-helpers.js";
+import { completeDeath, gainPoints } from "./effect-helpers.js";
 import { fileIntoTrash } from "./effect-helpers.js";
 import { burn, payPowerFromChanneled, recallUnitToBase, returnUnitToHand } from "./effect-helpers.js";
 import { BIRD_TOKEN, SAND_SOLDIER_TOKEN, placeToken, type TokenSpec } from "./token.js";
@@ -217,6 +225,10 @@ const GRAND_PLAZA_UNITS_TO_WIN = 7;
 /** Amateur Recital — "When you hold here, you may move a unit at a battlefield
  *  to its base." */
 const AMATEUR_RECITAL = "UNL-207";
+/** Vaults of Helia — "When you hold here, your non-token units cost [1 Energy]
+ *  more to play this turn." */
+const VAULTS_OF_HELIA = "UNL-219";
+const VAULTS_OF_HELIA_SURCHARGE = 1;
 /** Shadow Temple — "When you hold here, [Burn 3]." */
 const SHADOW_TEMPLE = "VEN-165";
 const SHADOW_TEMPLE_BURN = 3;
@@ -680,6 +692,30 @@ export const BATTLEFIELD_TRIGGERS: Record<string, readonly BattlefieldTriggerDef
       on: "hold",
       resolve: (state, event) =>
         parkDecision(state, { kind: `${AMATEUR_RECITAL}-move`, playerIndex: event.playerIndex }),
+    },
+  ],
+  [VAULTS_OF_HELIA]: [
+    {
+      // "When you hold here, your NON-TOKEN units cost [1 Energy] more to play
+      // this turn."
+      //
+      // **A tax you put on YOURSELF**, and the pool's first one — every other
+      // hold ability here pays its holder. MANDATORY, so it asks nothing.
+      //
+      // Armed as a this-turn number on the player rather than applied to a card,
+      // because "your units cost more" is a continuous condition on every play
+      // for the rest of the turn and there is no card to hang it off. Read by
+      // `cost-modifiers.modifiedEnergyCost`, which BOTH the enumerator and the
+      // validator go through — a tax visible to only one of them is this
+      // codebase's offered-then-refused bug.
+      //
+      // ADDED rather than assigned, so two Vaults held in one turn tax twice.
+      on: "hold",
+      resolve: (state, event) =>
+        updatePlayer(state, event.playerIndex, (p) => ({
+          ...p,
+          nonTokenUnitSurchargeThisTurn: p.nonTokenUnitSurchargeThisTurn + VAULTS_OF_HELIA_SURCHARGE,
+        })),
     },
   ],
   [SHADOW_TEMPLE]: [
@@ -1162,6 +1198,44 @@ export const battlefieldDecisions: Record<string, DecisionDefinition> = {
       // picking the wrong one would make this card quietly better than printed —
       // the same call Fight or Flight records.
       optionId === "decline" ? state : recallUnitToBase(state, optionId),
+  },
+  [ALTAR_OF_BLOOD_SAVE]: {
+    // Altar of Blood (UNL-206) — "If a unit here would die during combat, its
+    // controller may pay [3 rainbow] to heal it, exhaust it, and recall it
+    // instead."
+    //
+    // The question lives HERE rather than in a per-domain effect file for this
+    // module's own stated reason: every printed Battlefield is Colorless, so
+    // filing one by domain would be filing it nowhere. Its OFFER is in
+    // `death-ward.ts` beside the other replacements, because `killUnit` is the
+    // only thing that can raise one.
+    prompt: (state, d) => {
+      const held = pendingDeathFor(state, d.targetInstanceId);
+      return `Altar of Blood: pay 3 Power to save ${held?.unit.name ?? "your unit"} instead of letting it die?`;
+    },
+    options: (state, d) =>
+      pendingDeathFor(state, d.targetInstanceId)
+        ? [
+            { id: "die", label: "Let it die" },
+            { id: "save", label: "Pay 3 Power of any domain: heal, exhaust and recall it" },
+          ]
+        : [],
+    resolve: (state, d, optionId) => {
+      const held = pendingDeathFor(state, d.targetInstanceId);
+      if (!held) return state;
+      const released = releasePendingDeath(state, held.unit.instanceId);
+      if (optionId !== "save") return completeDeath(released, held);
+
+      // Pay first and fall back to the ordinary death if the Power has gone since
+      // the offer — the discipline every paid replacement here follows, and the
+      // reason a half-paid save can never hand the unit back for free.
+      const paid = payPowerFromChanneled(released, d.playerIndex, null, ALTAR_OF_BLOOD_PIPS);
+      if (paid === undefined) return completeDeath(released, held);
+      // "Heal it, exhaust it, and recall it" — the same three words Highlander,
+      // Sett and the Hourglass print, through the one helper so they cannot drift
+      // on what a recall resets.
+      return reviveToBase(paid, held.unit, held.ownerIndex);
+    },
   },
   [`${ABANDONED_HALL}-pump`]: {
     prompt: () => "Abandoned Hall: give a unit you control here +1 Might this turn?",
