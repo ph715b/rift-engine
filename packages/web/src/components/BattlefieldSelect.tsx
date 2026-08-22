@@ -1,3 +1,6 @@
+import { battlefieldCard } from "../battlefield-cards.js";
+import { useCardHover } from "../hover-preview.js";
+
 interface BattlefieldSelectProps {
   /** The human's own three battlefields, straight off their DeckList. */
   names: string[];
@@ -30,6 +33,7 @@ interface BattlefieldSelectProps {
  */
 export function BattlefieldSelect({ names, used, seriesNote, onSelect }: BattlefieldSelectProps) {
   const available = names.filter((name) => !used.includes(name));
+  const setHovered = useCardHover();
 
   return (
     <div className="board">
@@ -43,13 +47,46 @@ export function BattlefieldSelect({ names, used, seriesNote, onSelect }: Battlef
         <div className="battlefield-select">
           {names.map((name) => {
             const isUsed = used.includes(name);
+            // The CARD behind the name. Reported from playtesting: this screen
+            // asked for a decision and showed nothing to decide on — three names
+            // in three buttons, where the whole basis for choosing is the
+            // battlefield's printed ability. `battlefieldCard` is the same
+            // by-name lookup `BattlefieldView` uses on the board, and the hover
+            // opens the same preview, so the ability a player reads here is
+            // the one they will read all game.
+            //
+            // `undefined` for a name no card matches is not an error: a deck file
+            // can name anything, and the button must still work — see
+            // battlefield-cards.ts. The name stays rendered in both cases, which
+            // is what keeps this screen usable for a battlefield outside the
+            // engine's data.
+            const card = battlefieldCard(name);
             return (
               <button
                 key={name}
                 className={`battlefield-select-option${isUsed ? " used" : ""}`}
                 disabled={isUsed}
                 onClick={() => onSelect(name)}
+                onMouseEnter={
+                  card
+                    ? () => setHovered({ kind: "battlefield", name: card.name, imageUrl: card.imageUrl, text: card.text })
+                    : undefined
+                }
+                onMouseLeave={card ? () => setHovered(null) : undefined}
+                // A hover preview is mouse-only, so the text has to reach a
+                // keyboard and a touch user some other way. `title` is what the
+                // deck builder's own battlefield tiles already use.
+                title={card?.text}
               >
+                {card && (
+                  <img
+                    className="battlefield-select-art"
+                    src={card.imageUrl}
+                    alt={card.name}
+                    draggable={false}
+                    loading="lazy"
+                  />
+                )}
                 <span className="battlefield-select-name">{name}</span>
                 <span className="battlefield-select-note">{isUsed ? "Already played this match" : "Present this one"}</span>
               </button>

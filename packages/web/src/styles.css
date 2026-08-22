@@ -2025,9 +2025,23 @@ button:disabled {
 /* A tile in the grid FILLS its cell rather than keeping the fixed `--card-w` the
    in-game board needs — otherwise the column count would change the spacing and
    not the card size, which is the opposite of what the control is for. The
-   aspect ratio is the printed card's, so nothing distorts. */
-.card-browser-grid .card-tile,
-.battlefield-picker-grid .card-tile {
+   aspect ratio is the printed card's, so nothing distorts.
+
+   `.card-browser-grid` ONLY, and the battlefield picker's absence is the fix for
+   a reported bug rather than an oversight. That picker is a `flex-wrap` row, not
+   a `--browser-cols` grid, so `width: 100%` there resolves against the whole
+   PANE instead of a cell — and the portrait ratio is wrong for a battlefield
+   anyway, which prints landscape. Measured before the fix at every viewport: a
+   778x1086 tile in an 825px pane, ratio 0.72 where 1.40 is intended.
+
+   It read as a cascade accident and it was one. `.card-tile.battlefield-tile`
+   below sizes the landscape tile and its own comment says it uses a compound
+   selector "so this wins regardless of declaration order" — but that guarded
+   against `.card-tile` (0,1,0) alone. This rule is 0,2,0, an EQUAL match decided
+   purely by coming later in the file, and it was added afterwards for the card
+   browser. `tools/ui-probes/deck-builder-tiles.mjs` measures the rendered box so
+   the next such tie is caught by an instrument rather than by a playtest. */
+.card-browser-grid .card-tile {
   width: 100%;
   height: auto;
   aspect-ratio: 744 / 1039;
@@ -2565,6 +2579,27 @@ button:disabled {
 
 .battlefield-select-option.used .battlefield-select-name {
   text-decoration: line-through;
+}
+
+/* The card itself, above the name. Sized in `rem` from the printed LANDSCAPE
+   ratio the same way the deck builder's picker tile is (11rem x 7.9rem), rather
+   than as a share of the option — this screen is a full-page overlay with slack
+   to spare, so it is not subject to the board's shortest-row card sizing, and a
+   percentage would resize with the longest battlefield NAME.
+
+   `align-self: stretch` with a fixed height so all three read as one row
+   whatever their names are, and `object-fit: cover` so a battlefield whose art
+   is a different crop does not letterbox beside the others. */
+.battlefield-select-art {
+  align-self: stretch;
+  height: 7.9rem;
+  object-fit: cover;
+  border-radius: 8px;
+  margin-bottom: 0.35rem;
+}
+
+.battlefield-select-option.used .battlefield-select-art {
+  filter: grayscale(1);
 }
 
 .battlefield-select-name {
