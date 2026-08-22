@@ -2252,6 +2252,41 @@ button:disabled {
   padding: 0.3rem;
 }
 
+/* The alternate-art printing toggle — a corner badge on the 93 cards that have
+   one, and absent on the rest.
+
+   Pinned to the tile's own corner rather than added to `.card-tile-controls`
+   below: that row is the copy stepper, it is the control a deckbuilder uses
+   constantly, and putting a taste setting in the middle of it would put a
+   cosmetic click a pixel away from "remove a copy". The tile clips its overflow,
+   so the badge is inset rather than hung outside. */
+.card-tile-art-toggle {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.25rem;
+  z-index: 2;
+  padding: 0.1rem 0.35rem;
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-bg-elevated) 82%, transparent);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  cursor: pointer;
+  /* Hidden until the tile is hovered or the button itself is focused, so 93
+     badges do not sit on top of 93 pieces of art while you are reading costs —
+     which is the mistake the "no effect yet" band made on this same tile and
+     which its own comment records. */
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.card-tile:hover .card-tile-art-toggle,
+.card-tile-art-toggle:focus-visible {
+  opacity: 1;
+}
+
 .card-tile-controls {
   position: absolute;
   left: 0;

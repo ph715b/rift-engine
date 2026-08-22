@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from "react";
+import { useMemo, useState, useSyncExternalStore, type CSSProperties } from "react";
 import {
   BATTLEFIELD_COUNT,
   DECK_SIZE,
@@ -30,6 +30,7 @@ import { DeckPanel } from "./DeckPanel.js";
 import { CardBrowserFilters } from "./CardBrowserFilters.js";
 import { DeckStatsView, SampleHandView } from "./DeckStatsView.js";
 import { EMPTY_FILTERS, filterAndSortCards, type CardFilters } from "../card-filters.js";
+import { chooseArt, chosenPrintingId, printingsFor, subscribeToArt, artSnapshot } from "../card-art.js";
 
 /** The left pane's tabs. `cards` first and default: it is the only one you
  *  return to, and every other step is a once-per-deck decision that used to sit
@@ -159,13 +160,51 @@ function CardBrowserTile({ def, count, isChampion, onIncrement, onDecrement, can
   // partly-implemented case, which used to read as fully working here.
   const notImplemented = unimplementedNote(def);
 
+  // The PRINTINGS of this card, default first — see card-art.ts. 93 cards in the
+  // pool have one alternate each; the rest get no control at all, which is why
+  // this is a list rather than a boolean even though every case today is a
+  // two-way toggle.
+  //
+  // Subscribed, so the tile repaints the moment its own toggle is clicked. The
+  // store is module-level rather than component state on purpose: the same choice
+  // has to reach `CardView` on the board, which shares no ancestor with this.
+  useSyncExternalStore(subscribeToArt, artSnapshot, artSnapshot);
+  const printings = printingsFor(def.id, def.name, def.imageUrl ?? "");
+  const chosenId = chosenPrintingId(def.id);
+  const chosenIndex = Math.max(
+    0,
+    printings.findIndex((p) => p.id === chosenId),
+  );
+  const shownArt = printings.length > 0 ? printings[chosenIndex]!.imageUrl : def.imageUrl;
+
   return (
     <div
       className={`card-tile${count > 0 ? " in-deck" : ""}${notImplemented ? " not-implemented" : ""}`}
       title={notImplemented}
     >
-      {def.imageUrl ? (
-        <img className="card-tile-art" src={def.imageUrl} alt={def.name} draggable={false} loading="lazy" />
+      {/* The printing picker, on the cards that have one. A CYCLE rather than a
+          dropdown: every card in the pool has exactly one alternate, so a menu
+          would be two clicks to express a toggle — and the tile's own art is the
+          preview, so the control needs no separate one.
+
+          Stops propagation because the tile is itself clickable in the
+          battlefield picker's sibling and may become so here; a player reaching
+          for the art must not add a copy. */}
+      {printings.length > 1 && (
+        <button
+          className="card-tile-art-toggle"
+          title={`Art: ${printings[chosenIndex]!.name} — click for the next printing`}
+          aria-label={`Change printing for ${def.name}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            chooseArt(def.id, printings[(chosenIndex + 1) % printings.length]!.id);
+          }}
+        >
+          ◈ {chosenIndex + 1}/{printings.length}
+        </button>
+      )}
+      {shownArt ? (
+        <img className="card-tile-art" src={shownArt} alt={def.name} draggable={false} loading="lazy" />
       ) : (
         <div className="card-tile-fallback">
           <div className="card-name">{def.name}</div>

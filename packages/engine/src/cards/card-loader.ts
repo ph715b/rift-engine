@@ -1660,6 +1660,72 @@ export function canonicalDefId(defId: string): string {
   return printingAliases().get(defId) ?? defId;
 }
 
+/** One printing of a card, for a player choosing which art to look at. */
+export interface CardPrinting {
+  /** The printing's own collector id — `OGN-007a` for Fury Rune's alternate. */
+  id: string;
+  /** The printed name, suffix and all ("Fury Rune (Alternate Art)"). */
+  name: string;
+  imageUrl: string;
+}
+
+/**
+ * Every ALTERNATE-ART printing in the pool, keyed by the defId of the card it is
+ * a printing OF.
+ *
+ * `shouldSkip` drops `alternate_art` entries from `loadCardDefinitions` and it is
+ * right to: an alternate art is the same card, and a pool holding both would
+ * double every one of them in deckbuilding and in every coverage count. But "not
+ * deckbuildable" is not "not real" — the same argument `loadBattlefieldDefinitions`
+ * and `loadTokenDefinitions` are built on — and a player who owns the pretty one
+ * wants to look at it. This is the presentation-only side lookup that makes that
+ * possible without letting the printings anywhere near the registry.
+ *
+ * **Joined by ID, not by name, and that is worth stating** because the obvious
+ * join here is the name: every one of these is `"<base name> (Alternate Art)"`,
+ * so stripping the suffix and matching looks sufficient. It is not the join to
+ * trust — `printingBaseName`'s own note records that Vendetta prints
+ * `Character, Title` where the earlier sets print `Character - Title`, so a
+ * name-keyed lookup needs a normalisation step that has already been got wrong
+ * once and cost twelve cards their implementation.
+ *
+ * The ids need no normalising at all: an alternate print's collector number is
+ * its base's with a letter appended (`ogn-007a-298` against `ogn-007-298`), so
+ * dropping that letter IS the base id. **Measured across the whole pool: 99 of 99
+ * alternate printings resolve to a real base id this way, with no misses**, and
+ * `alternate-art.test.ts` asserts that rather than trusting it.
+ */
+export function loadAlternateArt(): ReadonlyMap<string, CardPrinting[]> {
+  const byBase = new Map<string, CardPrinting[]>();
+  for (const raw of CARD_FILES) {
+    for (const item of extractCardItems(raw)) {
+      if (!item.metadata.alternate_art) continue;
+      const imageUrl = item.media.image_url;
+      if (!imageUrl) continue;
+      const id = deriveId(item.riftbound_id);
+      // `OGN-007a` -> `OGN-007`. Only a TRAILING letter is dropped, so a base id
+      // is never mangled and a printing with two letters would simply not match
+      // rather than resolving to the wrong card.
+      const baseId = id.replace(/[a-z]$/, "");
+      // **UNREACHABLE against today's data, and kept deliberately.** Every one of
+      // the 99 alternates ends in a letter, so `baseId` always shortens and a
+      // mutation removing this line survives — recorded in
+      // `alternate-art.test.ts`, which asserts that PRECONDITION instead. Without
+      // it, a future alternate with a base-shaped id would be listed as its own
+      // alternate: a 1/2 toggle showing the same art twice, which reads as a
+      // broken control rather than as missing data.
+      if (baseId === id) continue;
+      const printings = byBase.get(baseId) ?? [];
+      // De-duplicated by id: a set can list the same printing twice, and two
+      // identical entries in the picker would read as a broken control.
+      if (printings.some((p) => p.id === id)) continue;
+      printings.push({ id, name: decodeTextEntities(item.name), imageUrl });
+      byBase.set(baseId, printings);
+    }
+  }
+  return byBase;
+}
+
 /**
  * One real (non-alternate-art) rune image per domain — Rune-type cards are
  * deliberately excluded from `loadCardDefinitions` (they're never a

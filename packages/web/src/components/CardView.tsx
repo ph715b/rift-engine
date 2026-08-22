@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import { motion } from "framer-motion";
 import { defaultCardRegistry, loadTokenArt, type CardInstance } from "@rift-engine/engine";
 import { DOMAIN_COLORS } from "../domain-colors.js";
 import { useCardHover } from "../hover-preview.js";
 import { useDragGhost } from "../drag-ghost.js";
+import { artSnapshot, chosenArt, subscribeToArt } from "../card-art.js";
 
 export interface DragPoint {
   x: number;
@@ -183,7 +184,16 @@ export function CardView({
   const [isDragging, setIsDragging] = useState(false);
 
   const def = useMemo(() => defaultCardRegistry().tryGet(card.defId), [card.defId]);
-  const artUrl = def?.imageUrl || (card.isToken ? TOKEN_ART[card.defId] : undefined);
+  // The player's chosen PRINTING, if they picked one — see card-art.ts. Subscribed
+  // rather than read once, so a card repaints the instant the deck builder's
+  // picker is used instead of on the next unrelated render. The snapshot must be
+  // reference-stable between changes or this loops; `chooseArt` replaces the map
+  // rather than mutating it for exactly that reason.
+  useSyncExternalStore(subscribeToArt, artSnapshot, artSnapshot);
+  // `||` on the second half, not `??`, because that is what it has always been:
+  // an empty `imageUrl` must fall through, and changing it here would be a silent
+  // behaviour change riding along with a cosmetic feature.
+  const artUrl = chosenArt(card.defId) || def?.imageUrl || (card.isToken ? TOKEN_ART[card.defId] : undefined);
   const setHovered = useCardHover();
   const setDragGhost = useDragGhost();
 
