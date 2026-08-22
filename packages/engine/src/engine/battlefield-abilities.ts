@@ -21,8 +21,8 @@ import { isMighty } from "./granted-keywords.js";
 import { eventTriggerFor, type Listener } from "./triggers.js";
 import { gainPoints } from "./effect-helpers.js";
 import { fileIntoTrash } from "./effect-helpers.js";
-import { payPowerFromChanneled, returnUnitToHand } from "./effect-helpers.js";
-import { SAND_SOLDIER_TOKEN, placeToken, type TokenSpec } from "./token.js";
+import { burn, payPowerFromChanneled, recallUnitToBase, returnUnitToHand } from "./effect-helpers.js";
+import { BIRD_TOKEN, SAND_SOLDIER_TOKEN, placeToken, type TokenSpec } from "./token.js";
 import {
   revealedFromDeck,
   voidHatchlingAnswer,
@@ -169,6 +169,32 @@ const STARTIPPED_PEAK = "OGN-288";
 const THE_GRAND_PLAZA = "OGN-293";
 /** How many units The Grand Plaza wants standing there. */
 const GRAND_PLAZA_UNITS_TO_WIN = 7;
+
+// ── UNL and VEN, wave 1: the moments this module already fires ─────────────
+// Every one of these lands on `hold` or `conquer`, which `scoring.scoreHolds`
+// and `scoring.recordConquest` have fired since OGN's 24. Nothing here needs a
+// new moment, a new state field or a new primitive — which is exactly why they
+// are first: the 25 unimplemented battlefields split by MECHANISM, not by set,
+// and this is the group that costs nothing but the entries.
+
+/** Amateur Recital — "When you hold here, you may move a unit at a battlefield
+ *  to its base." */
+const AMATEUR_RECITAL = "UNL-207";
+/** Shadow Temple — "When you hold here, [Burn 3]." */
+const SHADOW_TEMPLE = "VEN-165";
+const SHADOW_TEMPLE_BURN = 3;
+/** Protective Sands — "When you conquer here, if you control 4 or fewer runes,
+ *  you may pay [1 Energy] to draw 1." */
+const PROTECTIVE_SANDS = "VEN-162";
+/** "If you CONTROL 4 or fewer runes" — the Rune Pool, `channeled.length`, the
+ *  same count Tomb Raider Barbara and Esteemed Hierophant read for the same
+ *  printed phrase. Not the rune DECK, and not the ready ones only. */
+const PROTECTIVE_SANDS_MAX_RUNES = 4;
+const PROTECTIVE_SANDS_ENERGY = 1;
+/** Trapping Grounds — "When you conquer here, if you assigned 3 or more excess
+ *  damage, play a 1 [Might] Bird unit token with [Deflect]." */
+const TRAPPING_GROUNDS = "UNL-217";
+const TRAPPING_GROUNDS_EXCESS = 3;
 
 /** Monastery of Hirana — "When you conquer here, you may spend a buff to draw 1." */
 const MONASTERY_OF_HIRANA = "OGN-282";
@@ -418,6 +444,106 @@ export const BATTLEFIELD_TRIGGERS: Record<string, readonly BattlefieldTriggerDef
     },
   ],
 
+  [AMATEUR_RECITAL]: [
+    {
+      // "When you hold here, you may move a unit AT A BATTLEFIELD to its base."
+      //
+      // **Either player's unit, and that is 355.9.a.1's widening**: "unit" is a
+      // bare noun, so it "refers to objects on the Board unless specified
+      // otherwise", and this text specifies only WHERE ("at a battlefield") and
+      // not WHOSE. So it is removal as often as it is rescue — the reading
+      // `effects/chaos.ts` already takes for Fight or Flight, whose text is this
+      // clause almost word for word.
+      //
+      // "AT A BATTLEFIELD" is the narrowing half (355.9.b): a unit already in a
+      // base is not a legal choice, and neither is one nowhere.
+      //
+      // No `applies`: an empty board is a question with only a Decline on it,
+      // which `advanceDecisions` retires without prompting. That is cheaper than
+      // walking every battlefield at trigger time, and — unlike Power Nexus's
+      // payability check — costs nothing either way, because there is no price
+      // here to be unable to pay.
+      on: "hold",
+      resolve: (state, event) =>
+        parkDecision(state, { kind: `${AMATEUR_RECITAL}-move`, playerIndex: event.playerIndex }),
+    },
+  ],
+  [SHADOW_TEMPLE]: [
+    {
+      // "When you hold here, [Burn 3]."
+      //
+      // MANDATORY — no "you may" — so it asks nothing and simply happens, which
+      // makes it the simplest entry in this table. `burn` is rule 440's shared
+      // helper; going through it rather than splicing the deck is what makes the
+      // cards that watch a trash fill (431's Burn Out, the delayed-death marks)
+      // see this.
+      //
+      // A deck shorter than 3 burns what it has: 440 is an EFFECT, so 359.3.e.11's
+      // do-as-much-as-you-can applies rather than an all-or-nothing cost rule.
+      // `burnCards` already reads that way, which is why this is one call.
+      on: "hold",
+      resolve: (state, event) => burn(state, event.playerIndex, SHADOW_TEMPLE_BURN),
+    },
+  ],
+  [PROTECTIVE_SANDS]: [
+    {
+      // "When you conquer here, if you control 4 or fewer runes, you may pay
+      // [1 Energy] to draw 1."
+      //
+      // TWO conditions and they are asked in different places on purpose:
+      //
+      //  - **the rune count is asked HERE**, in `applies`, because "if you control
+      //    4 or fewer runes" is a fact about the moment the ability triggered
+      //    (383) — and a board over the threshold must place no Pending Item at
+      //    all, since a held trigger costs both players a PassFocus even when it
+      //    resolves to nothing.
+      //  - **the Energy is asked here TOO**, the same call Power Nexus and
+      //    Emperor's Dais make: 416.3 says a cost you cannot complete is not one
+      //    you may choose to pay, so an empty pool is not a question.
+      //
+      // Both are re-checked at resolution, because the hold opens a response
+      // window and either can change inside it.
+      on: "conquer",
+      applies: (state, event) =>
+        state.players[event.playerIndex].channeled.length <= PROTECTIVE_SANDS_MAX_RUNES &&
+        payEnergyFromPool(state, event.playerIndex, PROTECTIVE_SANDS_ENERGY) !== undefined,
+      resolve: (state, event) =>
+        parkDecision(state, { kind: `${PROTECTIVE_SANDS}-draw`, playerIndex: event.playerIndex }),
+    },
+  ],
+  [TRAPPING_GROUNDS]: [
+    {
+      // "When you conquer here, if you assigned 3 or more excess damage, play a
+      // 1 [Might] Bird unit token with [Deflect]."
+      //
+      // **`lastShowdownExcessDamage` is the only record of that**, written by
+      // `combat.resolveShowdown` and already read this way by two cards in
+      // effects/body.ts. It carries the battlefield and the attacker, both of
+      // which are checked: a conquest at a DIFFERENT battlefield, or one where
+      // the excess was the other player's, is not this card's condition.
+      //
+      // **A conquest by a Spell has no excess damage at all** and so does not
+      // qualify — the field still holds whatever the last combat wrote, which is
+      // exactly why the battlefield is compared rather than the amount alone.
+      //
+      // MANDATORY once the condition holds ("play a ... token", no "you may"), so
+      // it asks nothing. `BIRD_TOKEN` is shared out of token.ts and already
+      // carries `[Deflect]` — the token spec and this card's reminder text agree
+      // by construction rather than by two copies matching.
+      on: "conquer",
+      applies: (state, event) => {
+        const excess = state.lastShowdownExcessDamage;
+        return (
+          excess !== null &&
+          excess.battlefieldId === event.battlefieldId &&
+          excess.attackerIndex === event.playerIndex &&
+          excess.amount >= TRAPPING_GROUNDS_EXCESS
+        );
+      },
+      resolve: (state, event) =>
+        placeToken(state, event.playerIndex, { battlefieldId: event.battlefieldId }, BIRD_TOKEN),
+    },
+  ],
   [MONASTERY_OF_HIRANA]: [
     {
       on: "conquer",
@@ -797,6 +923,52 @@ export const battlefieldDecisions: Record<string, DecisionDefinition> = {
       ravenbloomReveal(voidHatchlingAnswer(state, d.playerIndex, optionId), d.playerIndex),
   },
 
+  [`${AMATEUR_RECITAL}-move`]: {
+    prompt: () => "Amateur Recital: move a unit at a battlefield to its base?",
+    options: (state, d) => [
+      { id: "decline", label: "Decline" },
+      // EVERY battlefield, both players — see the trigger's note on 355.9.a.1.
+      // Walked here rather than captured at trigger time, because the response
+      // window this hold opens can move units in and out, and "a unit at a
+      // battlefield" means when the ability RESOLVES.
+      ...state.battlefields.flatMap((bf) =>
+        state.players.flatMap((p, owner) =>
+          (bf.units[p.id] ?? []).map((u) => ({
+            id: u.instanceId,
+            label: `Move ${u.name}${owner === d.playerIndex ? "" : " (theirs)"} to base`,
+            instanceId: u.instanceId,
+          })),
+        ),
+      ),
+    ],
+    resolve: (state, _d, optionId) =>
+      // `recallUnitToBase`, NOT `relocateToBaseUnchanged`: "move ... to its base"
+      // is a MOVE, so the unit arrives exhausted and move triggers see it. Rule
+      // 454's Recall-is-not-a-Move distinction is why both helpers exist, and
+      // picking the wrong one would make this card quietly better than printed —
+      // the same call Fight or Flight records.
+      optionId === "decline" ? state : recallUnitToBase(state, optionId),
+  },
+  [`${PROTECTIVE_SANDS}-draw`]: {
+    prompt: () => "Protective Sands: pay 1 Energy to draw 1?",
+    options: (state, d) =>
+      state.players[d.playerIndex].channeled.length > PROTECTIVE_SANDS_MAX_RUNES ||
+      payEnergyFromPool(state, d.playerIndex, PROTECTIVE_SANDS_ENERGY) === undefined
+        ? []
+        : [
+            { id: "pay", label: "Pay 1 Energy to draw 1" },
+            { id: "decline", label: "Decline" },
+          ],
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline") return state;
+      // Pay FIRST and re-check, the discipline Power Nexus's entry records: the
+      // hold opened a response window, so the Energy can be gone — and so can the
+      // rune count, which is why `options` above re-asks that too rather than
+      // trusting the `applies` that let this be raised.
+      const paid = payEnergyFromPool(state, d.playerIndex, PROTECTIVE_SANDS_ENERGY);
+      return paid === undefined ? state : drawCards(paid, d.playerIndex, 1);
+    },
+  },
   [`${POWER_NEXUS}-score`]: {
     prompt: () => "Power Nexus: pay 4 Power of any domain to score 1 point?",
     options: (state, d) =>
