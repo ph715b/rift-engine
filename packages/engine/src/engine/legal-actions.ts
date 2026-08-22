@@ -95,6 +95,10 @@ import {
   timingTierOf,
 } from "./timing.js";
 import { RAINBOW, hiddenCardIsPlayable, hideCostFor, isHiddenCard, mayHideWithEnergy } from "./hidden.js";
+import type { Domain } from "../model/domain.js";
+/** Dragon Roost reads the printed creature type. A constant so the string is
+ *  written once — 19 cards in the pool carry it. */
+const DRAGON_TAG = "Dragon";
 import { replacedCostFor } from "./replaced-costs.js";
 import { battlefieldTakesMovesFromAnywhere } from "./battlefield-tokens.js";
 import { foreignRepeatPip, reserveForeignPip, standingRepeatGrantFor } from "./repeat-grants.js";
@@ -106,7 +110,13 @@ import {
   deflectSurchargeForTargets,
   hasKeyword,
 } from "./granted-keywords.js";
-import { hiddenCardLimitAt, unitMayMoveThisTurn, unitMayMoveToBase, mayPlayUnitAt } from "./battlefield-continuous.js";
+import {
+  dragonRoostBattlefieldId,
+  hiddenCardLimitAt,
+  mayPlayUnitAt,
+  unitMayMoveThisTurn,
+  unitMayMoveToBase,
+} from "./battlefield-continuous.js";
 import { effectiveMight } from "./effective-might.js";
 import { attachableEquipment, equipmentPairedWith } from "./equipment.js";
 import { optionsFor, pendingDecision } from "./decisions.js";
@@ -968,6 +978,18 @@ export function legalActions(state: GameState): PlayerAction[] {
     // A from-hidden play counts, which is the card's own reminder ("Hidden cards
     // have [Reaction]") and matches `timing.ts`'s own derivation.
     const reactionPlay = fromHidden || timingTierOf(card) === "Reaction";
+    // Dragon Roost (VEN-157) — "any player may pay [2 rainbow] as an additional
+    // cost to play a DRAGON. If they do, they play it to this battlefield."
+    //
+    // Derived once here beside `reactionPlay`, and the tag is read off the
+    // DEFINITION rather than an instance: the card is still in hand, so it has no
+    // Equipment and `effectiveTagsOf` would have nothing to add.
+    const dragonRoostHere = card.kind === "Unit" ? dragonRoostBattlefieldId(state) : undefined;
+    // Narrowed to Unit: `CardDefinition` is a union and a Legend has no `tags`.
+    // The same definition-shape trap this session hit four times, and `tsc`
+    // caught it here too.
+    const dragonDef = defaultCardRegistry().tryGet(card.defId);
+    const cardIsDragon = dragonDef?.type === "Unit" && (dragonDef.tags ?? []).includes(DRAGON_TAG);
     // The per-card timing gate, and the whole reason this loop now runs in every
     // state: a Default-tier card is only offered in a Neutral Open state, an
     // [Action] card additionally during Showdowns, a [Reaction] card also onto a
@@ -2077,6 +2099,17 @@ export function legalActions(state: GameState): PlayerAction[] {
       // it. Zero when nothing targeted has [Deflect], so the ordinary card keeps
       // the single shared payment object it always had.
       let variantPaymentForTargets: RunePayment = variantPayment;
+      // **Dragon Roost's paid variant is priced from the SAME base this variant
+      // pays**, captured here rather than re-derived at the reinforce loop 700
+      // lines below — where `taxBase` is out of scope, and where guessing it
+      // would reintroduce this file's sixth offered-then-refused bug (a variant
+      // re-priced at the printed figure while it is actually paying a replaced or
+      // XP-discounted one).
+      //
+      // Undefined when the surcharge branch below did not run, in which case the
+      // printed base is the right one — the same fallback `variantPayment`
+      // itself is.
+      let roostBase: { cost: { energyCost: number; powerCost: number }; domain: Domain | null; alt: Domain | undefined } | undefined;
       if (deflected > 0) {
         // **Re-priced from the BASE this variant is actually paying, not always
         // the printed one.** This block used to hardcode `effectiveCost` and
@@ -2119,6 +2152,7 @@ export function legalActions(state: GameState): PlayerAction[] {
           taxBase.alt,
           deflected,
         );
+        roostBase = taxBase;
         // Unaffordable ONCE THE TAX IS ADDED — the card may still be playable at
         // another target, so this skips the variant rather than the card.
         if (!taxed) continue;
@@ -2802,6 +2836,44 @@ export function legalActions(state: GameState): PlayerAction[] {
             destinationBattlefieldId: bf.id,
           };
           if (targetIsElsewhere(bf.id)) actions.push(reinforce);
+
+          // **Dragon Roost (VEN-157)** — "ANY player may pay [2 rainbow] as an
+          // additional cost to play a Dragon. If they do, they play it to this
+          // battlefield."
+          //
+          // Emitted BESIDE the plain reinforce rather than replacing it: the cost
+          // is optional, so both variants are legal and the player chooses. The
+          // paid one exists only at the Roost itself, which is how "they play it
+          // to this battlefield" is enforced here — there is no paid variant
+          // pointing anywhere else for the validator to have to refuse.
+          //
+          // Priced through `rainbowSurchargeForPlay` with the flag set, so the
+          // payment carries the extra 2 pips; the validator re-derives the same
+          // number the same way. An unaffordable Dragon simply gets no paid
+          // variant, which is 416.3 rather than a refusal.
+          if (bf.id === dragonRoostHere && cardIsDragon) {
+            const roostSurcharge = rainbowSurchargeForPlay(
+              state,
+              playerIndex,
+              card.kind,
+              chosenUnitsOfPlay(variant),
+              card.defId,
+              reactionPlay,
+              true,
+            );
+            const base = roostBase ?? { cost: effectiveCost, domain: card.powerDomain, alt: card.powerDomainAlt };
+            const roostPayment = computeAutoPayment(
+              actor.channeled,
+              base.cost.energyCost,
+              base.cost.powerCost,
+              base.domain,
+              base.alt,
+              roostSurcharge,
+            );
+            if (roostPayment !== null && targetIsElsewhere(bf.id)) {
+              actions.push({ ...reinforce, payment: roostPayment, dragonRoostPaid: true as const });
+            }
+          }
         }
       }
 

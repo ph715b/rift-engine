@@ -7,6 +7,7 @@ import { effectiveMight } from "./effective-might.js";
 import { MIGHTY_THRESHOLD } from "./constants.js";
 import {
   firstGearDiscountFor,
+  DRAGON_ROOST_RAINBOW,
   friendlyChoiceRainbowDiscountFor,
   reactionSurchargeNow,
   repeatEnergyDiscountFor,
@@ -1000,6 +1001,10 @@ export function rainbowSurchargeForPlay(
    *  those. Optional and defaulting to false for the same reason `defId` is
    *  optional: a caller pricing something that is not a play is unchanged. */
   isReactionPlay = false,
+  /** Did this play take Dragon Roost's optional additional cost? Rides the same
+   *  term for the same reason the Vortex tax does — it is rainbow Power owed by
+   *  the play, and this is the one place a play's rainbow price is computed. */
+  dragonRoostPaid = false,
 ): number {
   return (
     (defId !== undefined && ignoresDeflectWhilePaying(defId)
@@ -1016,7 +1021,18 @@ export function rainbowSurchargeForPlay(
     //
     // Scoped to a Showdown AT that battlefield, read off the state rather than
     // passed in: a Reaction cast into a fight somewhere else is untaxed.
-    (isReactionPlay ? reactionSurchargeNow(state) : 0) -
+    (isReactionPlay ? reactionSurchargeNow(state) : 0) +
+    // **Dragon Roost (VEN-157)** — "any player may pay [2 rainbow] as an
+    // additional cost to play a Dragon". An OPTIONAL cost rather than a tax, so
+    // it is added only when the play says it was taken; the enumerator emits the
+    // paid variant beside the unpaid one and the validator prices whichever the
+    // action claims.
+    //
+    // Here rather than in `optionalAdditionalCostsFor` because the price is
+    // RAINBOW Power, and this is the one function that computes a play's rainbow
+    // term — pricing it anywhere else would give the enumerator and the validator
+    // two places to agree.
+    (dragonRoostPaid ? DRAGON_ROOST_RAINBOW : 0) -
     // **Sandswept Tomb (VEN-164)** — "Each spell that chooses one or more units
     // here that are friendly to it costs [1 rainbow] less."
     //

@@ -69,7 +69,8 @@ import {
 } from "../engine/timing.js";
 import { hiddenCardAt, hiddenCardIsPlayable } from "../engine/hidden.js";
 import { replacedCostFor } from "../engine/replaced-costs.js";
-import { mayPlayUnitAt } from "../engine/battlefield-continuous.js";
+import { dragonRoostBattlefieldId, mayPlayUnitAt } from "../engine/battlefield-continuous.js";
+import { defaultCardRegistry } from "../cards/card-registry.js";
 import { counterFilter, counterableSpells, choosesOnlyThisFriendlyUnit } from "../engine/counter-spell.js";
 import { foreignRepeatPip, standingRepeatGrantFor } from "../engine/repeat-grants.js";
 import { equipmentPairedWith } from "../engine/equipment.js";
@@ -1081,6 +1082,23 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // Through the same function the enumerator prices with, which is the whole
   // discipline this block already keeps for `[Deflect]`: two spellings of one
   // surcharge is how the offered-then-refused split has shipped three times.
+  // **Dragon Roost's claim is checked BEFORE it is priced.** A hand-built action
+  // could set the flag on any card and buy nothing with the two pips, or set it
+  // and land somewhere else — "if they do, they play it to THIS battlefield" is
+  // the whole of the card, so both halves are refused here rather than trusted
+  // from the enumerator.
+  if (action.dragonRoostPaid === true) {
+    const roost = dragonRoostBattlefieldId(state);
+    const def = defaultCardRegistry().tryGet(card.defId);
+    if (roost === undefined) return fail("There is no Dragon Roost in play");
+    if (def?.type !== "Unit" || !(def.tags ?? []).includes("Dragon")) {
+      return fail(`${card.name} is not a Dragon, so Dragon Roost's additional cost cannot be paid for it`);
+    }
+    if (action.destinationBattlefieldId !== roost) {
+      return fail("Paying Dragon Roost's additional cost plays the Dragon to that battlefield");
+    }
+  }
+
   const surcharge = rainbowSurchargeForPlay(
     state,
     action.playerIndex,
@@ -1092,6 +1110,10 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     // ("Hidden cards have [Reaction]") and the same derivation `timing.ts` makes
     // one line below its `ambushed` check.
     action.fromHiddenBattlefieldId !== undefined || timingTierOf(card) === "Reaction",
+    // Dragon Roost's optional [2 rainbow]. Priced from the action's own claim and
+    // re-derived here rather than trusted, the convention every cost site in this
+    // file keeps — the legality of the CLAIM is checked separately below.
+    action.dragonRoostPaid === true,
   );
   // Bullet Time — the X the action names has to be exactly the rainbow runes it
   // supplies. Checked here rather than trusting the enumerator, since a hand-built

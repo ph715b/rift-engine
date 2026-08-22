@@ -1101,7 +1101,7 @@ export const COMPLETE_SETS: readonly string[] = ["OGN", "OGS", "SFD", "UNL", "VE
  * So: one list per thing being gated. `test/battlefield-coverage.test.ts` reads
  * this one, and it starts protecting a set the moment it is added.
  */
-export const COMPLETE_BATTLEFIELD_SETS: readonly string[] = ["OGN", "SFD", "UNL"];
+export const COMPLETE_BATTLEFIELD_SETS: readonly string[] = ["OGN", "SFD", "UNL", "VEN"];
 
 /** How much of one set is implemented. `unimplemented`/`partial` hold
  *  "OGN-001 (Name)" strings rather than counts, because naming the cards is

@@ -201,6 +201,21 @@ export interface PlayCardAction {
    */
   optionalXpPaid?: true;
   /**
+   * Dragon Roost (VEN-157) — "ANY player may pay [2 rainbow] as an additional cost
+   * to play a Dragon. If they do, they play it to this battlefield."
+   *
+   * `optionalPowerPaid`'s shape (two enumerated variants, one flag the pricing
+   * reads) rather than a sixth `OptionalUnitCost` kind, because there is nothing
+   * to choose — the price is runes, and 2 rainbow have no identity.
+   *
+   * **Its OWN field, and the reason is the DESTINATION.** Every other optional
+   * cost here buys an EFFECT; this one buys a placement. When it is set the play's
+   * `destinationBattlefieldId` MUST be the Roost — the enumerator only ever emits
+   * it that way and the validator refuses any other pairing, so "if they do, they
+   * play it to this battlefield" is enforced on both sides rather than trusted.
+   */
+  dragonRoostPaid?: true;
+  /**
    * Bard - Mercurial's "you may exhaust your legend as an additional cost to play
    * me" — whether the caster took the option.
    *

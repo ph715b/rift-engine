@@ -242,12 +242,16 @@ describe("the play RECORDS what it spent", () => {
 });
 
 describe("UNL's battlefields are COMPLETE and hard-gated", () => {
-  it("UNL is in COMPLETE_BATTLEFIELD_SETS, and VEN is not", () => {
-    // The promotion this wave earned, and the one it did not. VEN-157 Dragon Roost
-    // is still unwritten — the note in `battlefield-abilities.ts` says why — so
-    // VEN stays out and `battlefield-coverage.test.ts` keeps reporting it as
-    // progress rather than holding the set to a gate it cannot pass.
+  it("UNL is in COMPLETE_BATTLEFIELD_SETS", () => {
+    // The promotion this wave earned.
+    //
+    // **This assertion used to add "…and VEN is not", and that half is gone on
+    // purpose.** It was true when written — VEN-157 Dragon Roost was still
+    // deferred — and it went red the moment the next change finished that card.
+    // A pin whose premise is "this work is unfinished" breaks when the work is
+    // done, and the repair is to drop the premise rather than to weaken what
+    // replaced it: `dragon-roost.test.ts` now asserts all four sets are gated,
+    // which is the thing worth holding.
     expect(COMPLETE_BATTLEFIELD_SETS, "UNL was finished but never promoted").toContain("UNL");
-    expect(COMPLETE_BATTLEFIELD_SETS, "VEN was promoted with Dragon Roost unwritten").not.toContain("VEN");
   });
 });

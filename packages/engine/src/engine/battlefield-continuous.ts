@@ -161,6 +161,17 @@ interface ContinuousBattlefield {
    * this taxes an 811 play too.
    */
   reactionSurchargeDuringShowdownHere?: number;
+  /**
+   * "Any player may pay N `[rainbow]` as an additional cost to play a Dragon. If
+   * they do, they play it to this battlefield" — Dragon Roost.
+   *
+   * A row here rather than a bare lookup so the battlefield is REPORTED: the
+   * coverage gate reads `continuousBattlefieldDefIds()`, and this is the sixth
+   * time this session a battlefield implemented off-table went on being called
+   * inert. It is a standing permission on the board, which is what this table is
+   * for.
+   */
+  dragonAdditionalCostRainbow?: number;
 }
 
 /** Forgotten Monument (SFD-209) — "players can't score here until their third
@@ -174,6 +185,11 @@ const ROCKFALL_PATH = "SFD-216";
 /** Ornn's Forge (SFD-213) — "While you control this battlefield, the first
  *  friendly non-token gear played each turn costs [1 Energy] less." */
 const ORNNS_FORGE = "SFD-213";
+/** Dragon Roost (VEN-157) — "Any player may pay [2 rainbow] as an additional
+ *  cost to play a Dragon. If they do, they play it to this battlefield." */
+const DRAGON_ROOST = "VEN-157";
+export const DRAGON_ROOST_RAINBOW = 2;
+
 /** Heisho, Shell of the World (VEN-158) — "Players ignore [Deflect] while paying
  *  for spells and abilities choosing something here." */
 const HEISHO = "VEN-158";
@@ -235,6 +251,9 @@ const BATTLEFIELD_CONTINUOUS: Record<string, ContinuousBattlefield> = {
   [SANDSWEPT_TOMB]: { friendlyChoiceRainbowDiscount: 1 },
   // "During showdowns HERE, cards with [Reaction] cost [1 rainbow] more."
   [MYSTIC_VORTEX]: { reactionSurchargeDuringShowdownHere: 1 },
+  // "Any player may pay [2 rainbow] as an additional cost to play a Dragon. If
+  // they do, they play it to this battlefield." Both sides — "any player".
+  [DRAGON_ROOST]: { dragonAdditionalCostRainbow: DRAGON_ROOST_RAINBOW },
 };
 
 
@@ -419,6 +438,27 @@ export function friendlyChoiceRainbowDiscountFor(
 export function reactionSurchargeNow(state: GameState): number {
   if (state.turnState !== "Showdown") return 0;
   return at(state, state.showdownBattlefieldId ?? undefined)?.reactionSurchargeDuringShowdownHere ?? 0;
+}
+
+/**
+ * Dragon Roost (VEN-157) — the battlefield a Dragon may be paid onto, or
+ * undefined when none is in play.
+ *
+ * "ANY player may pay" — both sides, like every other unqualified battlefield
+ * ability, so this takes no player.
+ *
+ * Returns the ID rather than a boolean because the whole card is the
+ * DESTINATION: the enumerator needs to know where to send the paid variant, and
+ * the validator needs to check it went there.
+ *
+ * The FIRST such battlefield if two are somehow in play — two Roosts would offer
+ * two destinations and this offers one, which is a narrowing recorded in
+ * docs/rules-conformance.md rather than a claim that it cannot happen.
+ */
+export function dragonRoostBattlefieldId(state: GameState): string | undefined {
+  // Off the TABLE rather than off the defId, so the row is what makes the card
+  // real — and so the coverage gate, which reads the table, can see it.
+  return state.battlefields.find((bf) => at(state, bf.id)?.dragonAdditionalCostRainbow !== undefined)?.id;
 }
 
 export function hasKeywordMightRuleAt(state: GameState, battlefieldId: string | undefined): boolean {
