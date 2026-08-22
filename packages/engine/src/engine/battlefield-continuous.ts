@@ -96,6 +96,42 @@ interface ContinuousBattlefield {
    * already gone this turn.
    */
   firstGearDiscountForController?: number;
+  /**
+   * "Units here WITH `[Keyword]` have +N Might" — Kinkou Temple's `[Tank]`.
+   *
+   * Its own field rather than a condition on `mightBonusHere`, because that one
+   * is flat and unconditional by construction and every reader treats it that
+   * way. The keyword is not looked up here: `battlefieldKeywordMightBonusAt`
+   * takes the unit's ALREADY-COMPUTED keywords, which is what keeps this module
+   * free of a `granted-keywords` import — see the note at the top about why it
+   * imports nothing but types.
+   */
+  mightBonusHereForKeyword?: { readonly keyword: Keyword; readonly amount: number };
+  /**
+   * "Units here with `[X]` have `[Y]`" — Black Flame Altar's "units here with
+   * `[Temporary]` have `[Shield]`".
+   *
+   * The first battlefield ability in this pool that reads a unit's keywords to
+   * decide its keywords. `battlefieldConditionalKeywordsAt` is handed what the
+   * unit has and returns what to add, so the decision stays in
+   * `effectiveKeywords` where the merge rules (807.2/809.2/814.2/823.2's summing)
+   * already live.
+   */
+  keywordsHereForKeyword?: { readonly ifKeyword: Keyword; readonly grants: readonly Keyword[] };
+  /**
+   * "While a unit here is defending ALONE, it has -N Might" — Forbidding Waste.
+   *
+   * **A PENALTY, stored positive and subtracted at the call site**, so the field
+   * reads the way the card does. Positional AND combat-scoped AND owner-relative
+   * all at once, which is why it cannot be a `mightBonusHere` row: that field is
+   * a flat bonus to every unit standing here on both sides.
+   *
+   * "Alone" is the card's own reminder text — "there are no other FRIENDLY units
+   * here" — so an enemy standing opposite does not keep you company. Wielder of
+   * Water's "alone here" check in `effective-might` reads it the same way, and
+   * this rides beside it.
+   */
+  lonelyDefenderMightPenalty?: number;
 }
 
 /** Forgotten Monument (SFD-209) — "players can't score here until their third
@@ -109,6 +145,13 @@ const ROCKFALL_PATH = "SFD-216";
 /** Ornn's Forge (SFD-213) — "While you control this battlefield, the first
  *  friendly non-token gear played each turn costs [1 Energy] less." */
 const ORNNS_FORGE = "SFD-213";
+/** Kinkou Temple (VEN-159) — "Units here with [Tank] have +1 [Might]." */
+const KINKOU_TEMPLE = "VEN-159";
+/** Black Flame Altar (UNL-208) — "Units here with [Temporary] have [Shield]." */
+const BLACK_FLAME_ALTAR = "UNL-208";
+/** Forbidding Waste (UNL-210) — "While a unit here is defending alone, it has
+ *  -2 [Might]. (It's alone if there are no other friendly units here.)" */
+const FORBIDDING_WASTE = "UNL-210";
 
 const BATTLEFIELD_CONTINUOUS: Record<string, ContinuousBattlefield> = {
   [TRIFARIAN_WAR_CAMP]: { mightBonusHere: 1 },
@@ -132,6 +175,19 @@ const BATTLEFIELD_CONTINUOUS: Record<string, ContinuousBattlefield> = {
   // Controller-scoped like Marai Spire, and like it this is game-wide rather
   // than positional: the gear is played to a base or anywhere else, not here.
   [ORNNS_FORGE]: { firstGearDiscountForController: 1 },
+  // ── UNL and VEN, wave 2: the CONDITIONAL continuous ones ──────────────────
+  // Every OGN and SFD entry above is either flat ("units here have +1") or a
+  // board-wide rule. These three read the UNIT — its keywords, or how alone it
+  // is — which is why the interface grew three fields rather than reusing
+  // `mightBonusHere`/`keywordsHere`.
+  //
+  // "Units here with [Tank] have +1 [Might]." Both sides, like the War Camp: the
+  // card names no owner.
+  [KINKOU_TEMPLE]: { mightBonusHereForKeyword: { keyword: "Tank", amount: 1 } },
+  // "Units here with [Temporary] have [Shield]." Both sides again.
+  [BLACK_FLAME_ALTAR]: { keywordsHereForKeyword: { ifKeyword: "Temporary", grants: ["Shield"] } },
+  // "While a unit here is defending alone, it has -2 [Might]."
+  [FORBIDDING_WASTE]: { lonelyDefenderMightPenalty: 2 },
 };
 
 
@@ -254,6 +310,70 @@ export function battlefieldMightBonusAt(state: GameState, battlefieldId: string 
  *  it came from. */
 export function battlefieldKeywordsAt(state: GameState, battlefieldId: string | undefined): readonly Keyword[] {
   return at(state, battlefieldId)?.keywordsHere ?? [];
+}
+
+/**
+ * Kinkou Temple's "+1 [Might] to units here with `[Tank]`".
+ *
+ * **Takes the unit's keywords rather than looking them up**, which is what keeps
+ * this module importing nothing but types — `granted-keywords` imports
+ * `effective-might`, and `effective-might` is this function's only caller, so a
+ * lookup here would close a three-module cycle. The caller already has the merged
+ * set in hand at the point it asks.
+ */
+/**
+ * Does this battlefield print a keyword-conditional Might rule at all?
+ *
+ * **Asked BEFORE the keywords are computed, and that is load-bearing.**
+ * `granted-keywords` imports `effective-might`, so `effectiveKeywords` called on
+ * every Might evaluation closes a cycle across the whole engine — the first
+ * version of Kinkou Temple did exactly that and four unrelated tests died with
+ * "Maximum call stack size exceeded". This makes the expensive half reachable
+ * only at the one battlefield that needs it.
+ */
+export function hasKeywordMightRuleAt(state: GameState, battlefieldId: string | undefined): boolean {
+  return at(state, battlefieldId)?.mightBonusHereForKeyword !== undefined;
+}
+
+export function battlefieldKeywordMightBonusAt(
+  state: GameState,
+  battlefieldId: string | undefined,
+  keywords: Partial<Record<Keyword, number>>,
+): number {
+  const rule = at(state, battlefieldId)?.mightBonusHereForKeyword;
+  if (!rule) return 0;
+  // PRESENCE, not magnitude: "units with [Tank]" is a yes/no about the keyword,
+  // and a `[Tank]` from two sources is still one Tank unit.
+  return (keywords[rule.keyword] ?? 0) > 0 ? rule.amount : 0;
+}
+
+/**
+ * Black Flame Altar's "units here with `[Temporary]` have `[Shield]`".
+ *
+ * Handed what the unit HAS, returns what to ADD — so the merge itself stays in
+ * `effectiveKeywords`, where 807.2/809.2/814.2/823.2's summing rules already
+ * live and where a `[Shield]` from here correctly stacks with a printed one.
+ */
+export function battlefieldConditionalKeywordsAt(
+  state: GameState,
+  battlefieldId: string | undefined,
+  keywords: Partial<Record<Keyword, number>>,
+): readonly Keyword[] {
+  const rule = at(state, battlefieldId)?.keywordsHereForKeyword;
+  if (!rule) return [];
+  return (keywords[rule.ifKeyword] ?? 0) > 0 ? rule.grants : [];
+}
+
+/**
+ * Forbidding Waste's "-2 [Might] while defending alone", as a POSITIVE number the
+ * caller subtracts.
+ *
+ * The "alone" and "defending" halves are the CALLER's to check — they need the
+ * combat context and the unit's owner, neither of which this module has. This
+ * answers only "does this battlefield have such a rule, and how big".
+ */
+export function lonelyDefenderPenaltyAt(state: GameState, battlefieldId: string | undefined): number {
+  return at(state, battlefieldId)?.lonelyDefenderMightPenalty ?? 0;
 }
 
 /**

@@ -6,7 +6,7 @@ import type { UnitInstance } from "../model/card.js";
 import type { Keyword } from "../model/keyword.js";
 import { effectiveMight } from "./effective-might.js";
 import { MIGHTY_THRESHOLD, isMechDef } from "./constants.js";
-import { battlefieldKeywordsAt } from "./battlefield-continuous.js";
+import { battlefieldConditionalKeywordsAt, battlefieldKeywordsAt } from "./battlefield-continuous.js";
 import { mergeGrantedKeyword } from "./keyword-stacking.js";
 import { equipmentDefIds, equipmentKeywordDefIds, equipmentKeywordsFor } from "./equipment.js";
 import { effectiveTagsOf } from "./equipment.js";
@@ -878,12 +878,31 @@ export function effectiveKeywords(
   // unchanged is what "nothing is granting anything" means, and an Empowered unit
   // whose clause names a keyword IS having something granted.
   const empoweredKeywords = unit.empowered === true ? empoweredKeywordGrant(unit.defId) : undefined;
+  // **Black Flame Altar's conditional grant, asked BEFORE the fast path** — and
+  // this line is the whole reason that card is not silently inert.
+  //
+  // The fast path returns `unit.keywords` untouched when nothing is granting
+  // anything, and its guard lists every source the folds below can add from. A
+  // `[Temporary]` unit standing at the Altar with no aura, no Equipment and no
+  // this-turn grant matches every one of those conditions, so it would take the
+  // fast path and never reach the fold at the bottom that gives it `[Shield]`.
+  // The card would work only for units that happened to be getting something
+  // else — the exact shape of "implemented, and inert in play" this repo keeps
+  // finding.
+  //
+  // Asked with the PRINTED keywords rather than the merged set, which is a
+  // deliberate under-approximation used ONLY as a fast-path guard: if it says
+  // yes we do the full merge and re-ask properly at the bottom; the case it
+  // could miss is a `[Temporary]` that arrives from a grant, and that unit has a
+  // grant, so it fails the fast path on that source anyway.
+  const conditionalFromBattlefield = battlefieldConditionalKeywordsAt(state, locationOf(state, unit), unit.keywords);
   if (
     !hasThisTurn &&
     dynamic === undefined &&
     empoweredKeywords === undefined &&
     fromAuras.length === 0 &&
     fromBattlefield.length === 0 &&
+    conditionalFromBattlefield.length === 0 &&
     Object.keys(fromEquipment).length === 0 &&
     (!grant || !grant.when(state, unit, ownerIndex))
   ) {
@@ -952,6 +971,23 @@ export function effectiveKeywords(
   // instance of it — so nothing double-counts here.
   if (dynamic) {
     mergeGrantedKeyword(out, dynamic.keyword, dynamic.value(state, unit, ownerIndex));
+  }
+  // **Black Flame Altar — "units here with [Temporary] have [Shield]"** — the
+  // first battlefield ability that reads a unit's keywords to decide its
+  // keywords, which is why it is folded LAST.
+  //
+  // Last is load-bearing rather than tidy: `[Temporary]` can itself arrive from
+  // a grant (Fading Memories gives it to an enemy unit), and asking before those
+  // folds would miss exactly the case the card is interesting for. `out` at this
+  // point is the full merged set, so "with [Temporary]" means what a player
+  // reading the board means.
+  //
+  // It cannot loop: the rule's condition and its grant are different keywords, so
+  // adding `[Shield]` cannot change whether the unit has `[Temporary]`. A
+  // battlefield printing "units with [Shield] have [Shield]" would need the
+  // fixed-point machinery 476's layers describe, and nothing in the pool does.
+  for (const kw of battlefieldConditionalKeywordsAt(state, locationOf(state, unit), out)) {
+    mergeGrantedKeyword(out, kw, 1);
   }
   return out;
 }

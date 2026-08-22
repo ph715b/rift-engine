@@ -3,7 +3,12 @@ import { domainMightModifierSources, mergeRegistries } from "./effects/index.js"
 import type { UnitInstance } from "../model/card.js";
 import { legendMightBonus } from "./legend-abilities.js";
 import { effectiveKeywords } from "./granted-keywords.js";
-import { battlefieldMightBonusAt } from "./battlefield-continuous.js";
+import {
+  battlefieldKeywordMightBonusAt,
+  battlefieldMightBonusAt,
+  hasKeywordMightRuleAt,
+  lonelyDefenderPenaltyAt,
+} from "./battlefield-continuous.js";
 import { BRUSH_MIGHT, BRUSH_TAGS, isBrush } from "./battlefield-tokens.js";
 import { effectiveTagsOf } from "./equipment.js";
 import { equipmentMightBonusFor } from "./equipment.js";
@@ -641,6 +646,63 @@ function continuousAuraBonus(state: GameState, unit: UnitInstance, ownerIndex: 0
   // The parenthetical is free here — the bonus is unconditional, so it lands in
   // the outgoing-damage context as well as the remaining one.
   bonus += battlefieldMightBonusAt(state, ctx.battlefieldId);
+
+  // **Kinkou Temple's "+1 to units here with [Tank]"** — the same positional,
+  // both-sides shape as the War Camp above, with a condition on the unit.
+  //
+  // # The cycle, and what actually breaks it
+  //
+  // `granted-keywords` imports THIS module, so reading a unit's keywords to
+  // decide its Might can loop. **The first version called `effectiveKeywords`
+  // unconditionally and with `ctx.mightyCheck` threaded through**, which closed
+  // the loop on every Might evaluation in the engine: four Fiora - Victorious
+  // tests died with "Maximum call stack size exceeded".
+  //
+  // Two things fix it and they do different jobs:
+  //
+  // **`hasKeywordMightRuleAt` first** — so the expensive half is reachable only
+  // at a battlefield that actually prints such a rule, rather than on every Might
+  // read in the game.
+  //
+  // **`excludeMightDependentGrants: true`, HARDCODED** — this is the one that
+  // terminates it. It withholds exactly the grants that are conditional on being
+  // `[Mighty]` (Fiora's `[Deflect]`/`[Ganking]`/`[Shield]`), and those are the
+  // only grants whose evaluation calls back into `effectiveMight`. With them
+  // withheld the nested call cannot re-enter, whatever `ctx` says.
+  //
+  // **It is NOT threaded off `ctx.mightyCheck`, and that was a real mistake worth
+  // recording.** Gating this whole term on `ctx.mightyCheck !== true` also
+  // terminated, so it looked right — but `isMighty` asks its FIRST question with
+  // no `mightyCheck` at all (the out-of-combat read) and only sets it for the
+  // combat read. So the bonus counted toward `[Mighty]` at rest and not in
+  // combat: the same unit, Mighty standing still and not Mighty fighting. The
+  // test asserting the Mighty answer is what caught it.
+  //
+  // A unit lifted to 5 by this card IS `[Mighty]`, exactly as one lifted by
+  // Trifarian War Camp is. 476 has nothing to say here — the suppression Fiora
+  // needs is about a keyword that depends on Might, and `[Tank]` does not.
+  if (hasKeywordMightRuleAt(state, ctx.battlefieldId)) {
+    bonus += battlefieldKeywordMightBonusAt(
+      state,
+      ctx.battlefieldId,
+      effectiveKeywords(state, unit, ownerIndex, true),
+    );
+  }
+
+  // **Forbidding Waste's "-2 while defending ALONE"** — the mirror of Wielder of
+  // Water's "alone here" bonus above, and read the same way: "alone" is the
+  // card's own reminder text, "there are no other FRIENDLY units here", so an
+  // enemy standing opposite is not company.
+  //
+  // DEFENDING, so it needs a combat and the defending side. `isAttackingSide` is
+  // only meaningful while `isCombat`, which is why both are asked — a Might read
+  // outside combat has no side at all and must not collect the penalty.
+  const lonely = lonelyDefenderPenaltyAt(state, ctx.battlefieldId);
+  if (lonely > 0 && ctx.isCombat && ctx.isAttackingSide === false && ctx.battlefieldId !== undefined) {
+    const bf = state.battlefields.find((b) => b.id === ctx.battlefieldId);
+    const friends = bf?.units[state.players[ownerIndex].id]?.length ?? 0;
+    if (friends === 1) bonus -= lonely;
+  }
 
   // **The Brush token's aura, and it is TAG-filtered where the War Camp's is
   // not** — "Bird, Cat, Dog, Poro, and Ivern units have +1 [Might] in Brush". So
