@@ -6,7 +6,7 @@ import type { UnitInstance } from "../model/card.js";
 import type { Keyword } from "../model/keyword.js";
 import { effectiveMight } from "./effective-might.js";
 import { MIGHTY_THRESHOLD, isMechDef } from "./constants.js";
-import { battlefieldConditionalKeywordsAt, battlefieldKeywordsAt } from "./battlefield-continuous.js";
+import { battlefieldConditionalKeywordsAt, battlefieldKeywordsAt, deflectIsIgnoredAt } from "./battlefield-continuous.js";
 import { mergeGrantedKeyword } from "./keyword-stacking.js";
 import { equipmentDefIds, equipmentKeywordDefIds, equipmentKeywordsFor } from "./equipment.js";
 import { effectiveTagsOf } from "./equipment.js";
@@ -1230,6 +1230,19 @@ export function deflectSurchargeForTargets(
     if (id === undefined) continue;
     const found = findUnitAnywhere(state, id);
     if (!found) continue;
+    // **Heisho, Shell of the World (VEN-158)** — "PLAYERS ignore [Deflect] while
+    // paying for spells and abilities choosing something HERE."
+    //
+    // Rules 764-766's ignore mechanism, the same one Decree of Insight uses, but
+    // POSITIONAL instead of per-card: it is a property of where the target
+    // stands, not of what is being cast. So it is skipped per TARGET here rather
+    // than short-circuiting the whole payment the way
+    // `ignoresDeflectWhilePaying` does — a spell choosing one unit at Heisho and
+    // one elsewhere still owes the second unit's surcharge.
+    //
+    // "PLAYERS", not "you": it binds both sides, like every other unqualified
+    // battlefield ability.
+    if (deflectIsIgnoredAt(state, locationOf(state, found.unit))) continue;
     total += deflectSurcharge(state, found.unit, found.ownerIndex, chooserIndex);
   }
   return total;

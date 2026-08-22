@@ -132,6 +132,35 @@ interface ContinuousBattlefield {
    * this rides beside it.
    */
   lonelyDefenderMightPenalty?: number;
+  /**
+   * "Players ignore `[Deflect]` while paying for spells and abilities choosing
+   * something here" — Heisho, Shell of the World.
+   *
+   * Rules 764-766's ignore mechanism, the same one Decree of Insight uses, but
+   * POSITIONAL rather than per-card: read by `deflectSurchargeForTargets` per
+   * TARGET, so a spell choosing one unit here and one elsewhere still owes the
+   * second one's surcharge.
+   */
+  ignoresDeflectHere?: true;
+  /**
+   * "Each spell that chooses one or more units here that are FRIENDLY TO IT costs
+   * N `[rainbow]` less" — Sandswept Tomb.
+   *
+   * "Friendly to it" is friendly to the SPELL, i.e. to its caster — so it
+   * discounts your spell choosing your own unit here, and not your spell choosing
+   * theirs. Applied ONCE however many qualifying units are chosen ("one or
+   * more"), which is why it is an amount and not a per-unit rate.
+   */
+  friendlyChoiceRainbowDiscount?: number;
+  /**
+   * "During showdowns here, cards with `[Reaction]` cost N `[rainbow]` more" —
+   * Mystic Vortex.
+   *
+   * Scoped to a Showdown AT THIS battlefield, so it is dead while the fight is
+   * elsewhere. "(Hidden cards have [Reaction].)" is the card's own reminder that
+   * this taxes an 811 play too.
+   */
+  reactionSurchargeDuringShowdownHere?: number;
 }
 
 /** Forgotten Monument (SFD-209) — "players can't score here until their third
@@ -145,6 +174,16 @@ const ROCKFALL_PATH = "SFD-216";
 /** Ornn's Forge (SFD-213) — "While you control this battlefield, the first
  *  friendly non-token gear played each turn costs [1 Energy] less." */
 const ORNNS_FORGE = "SFD-213";
+/** Heisho, Shell of the World (VEN-158) — "Players ignore [Deflect] while paying
+ *  for spells and abilities choosing something here." */
+const HEISHO = "VEN-158";
+/** Sandswept Tomb (VEN-164) — "Each spell that chooses one or more units here
+ *  that are friendly to it costs [1 rainbow] less." */
+const SANDSWEPT_TOMB = "VEN-164";
+/** Mystic Vortex (VEN-160) — "During showdowns here, cards with [Reaction] cost
+ *  [1 rainbow] more. (Hidden cards have [Reaction].)" */
+const MYSTIC_VORTEX = "VEN-160";
+
 /** Kinkou Temple (VEN-159) — "Units here with [Tank] have +1 [Might]." */
 const KINKOU_TEMPLE = "VEN-159";
 /** Black Flame Altar (UNL-208) — "Units here with [Temporary] have [Shield]." */
@@ -188,6 +227,14 @@ const BATTLEFIELD_CONTINUOUS: Record<string, ContinuousBattlefield> = {
   [BLACK_FLAME_ALTAR]: { keywordsHereForKeyword: { ifKeyword: "Temporary", grants: ["Shield"] } },
   // "While a unit here is defending alone, it has -2 [Might]."
   [FORBIDDING_WASTE]: { lonelyDefenderMightPenalty: 2 },
+  // "Players ignore [Deflect] while paying for spells and abilities choosing
+  // something here." Both sides — "players", not "you".
+  [HEISHO]: { ignoresDeflectHere: true },
+  // "Each spell that chooses one or more units here that are FRIENDLY TO IT costs
+  // [1 rainbow] less." Once, however many qualify.
+  [SANDSWEPT_TOMB]: { friendlyChoiceRainbowDiscount: 1 },
+  // "During showdowns HERE, cards with [Reaction] cost [1 rainbow] more."
+  [MYSTIC_VORTEX]: { reactionSurchargeDuringShowdownHere: 1 },
 };
 
 
@@ -331,6 +378,49 @@ export function battlefieldKeywordsAt(state: GameState, battlefieldId: string | 
  * "Maximum call stack size exceeded". This makes the expensive half reachable
  * only at the one battlefield that needs it.
  */
+/** Heisho — is `[Deflect]` ignored for a target standing at `battlefieldId`? */
+export function deflectIsIgnoredAt(state: GameState, battlefieldId: string | undefined): boolean {
+  return at(state, battlefieldId)?.ignoresDeflectHere === true;
+}
+
+/**
+ * Sandswept Tomb's discount for a spell that chose any FRIENDLY unit standing at
+ * such a battlefield.
+ *
+ * Applied ONCE — "one or more units here" is a condition, not a rate — and only
+ * for units belonging to the CASTER, which is what "friendly to it" means about a
+ * spell.
+ */
+export function friendlyChoiceRainbowDiscountFor(
+  state: GameState,
+  playerIndex: 0 | 1,
+  chosenInstanceIds: readonly (string | undefined)[],
+): number {
+  const ownerId = state.players[playerIndex].id;
+  let best = 0;
+  for (const id of chosenInstanceIds) {
+    if (id === undefined) continue;
+    for (const bf of state.battlefields) {
+      if (!(bf.units[ownerId] ?? []).some((u) => u.instanceId === id)) continue;
+      best = Math.max(best, at(state, bf.id)?.friendlyChoiceRainbowDiscount ?? 0);
+    }
+  }
+  return best;
+}
+
+/**
+ * Mystic Vortex's surcharge on a `[Reaction]` card while a Showdown is running AT
+ * that battlefield.
+ *
+ * The Showdown's location is read off the STATE rather than passed in, because
+ * this is a fact about the board and not about the play — a Reaction cast into a
+ * fight somewhere else is untaxed.
+ */
+export function reactionSurchargeNow(state: GameState): number {
+  if (state.turnState !== "Showdown") return 0;
+  return at(state, state.showdownBattlefieldId ?? undefined)?.reactionSurchargeDuringShowdownHere ?? 0;
+}
+
 export function hasKeywordMightRuleAt(state: GameState, battlefieldId: string | undefined): boolean {
   return at(state, battlefieldId)?.mightBonusHereForKeyword !== undefined;
 }

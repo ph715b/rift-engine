@@ -5,7 +5,12 @@ import { opponentNearVictory } from "./constants.js";
 import { isEmpowered, legionActive } from "./effect-helpers.js";
 import { effectiveMight } from "./effective-might.js";
 import { MIGHTY_THRESHOLD } from "./constants.js";
-import { firstGearDiscountFor, repeatEnergyDiscountFor } from "./battlefield-continuous.js";
+import {
+  firstGearDiscountFor,
+  friendlyChoiceRainbowDiscountFor,
+  reactionSurchargeNow,
+  repeatEnergyDiscountFor,
+} from "./battlefield-continuous.js";
 import type { UnitInstance } from "../model/card.js";
 import { isMechUnit } from "./equipment.js";
 import { deflectSurchargeForTargets } from "./granted-keywords.js";
@@ -991,12 +996,34 @@ export function rainbowSurchargeForPlay(
    *  named card are unchanged — and every play-path caller passes it, which is
    *  what keeps the enumerator and the validator on the same price. */
   defId?: string,
+  /** Does this play have `[Reaction]`? For Mystic Vortex, which taxes exactly
+   *  those. Optional and defaulting to false for the same reason `defId` is
+   *  optional: a caller pricing something that is not a play is unchanged. */
+  isReactionPlay = false,
 ): number {
   return (
     (defId !== undefined && ignoresDeflectWhilePaying(defId)
       ? 0
       : deflectSurchargeForTargets(state, playerIndex, chosenInstanceIds)) +
-    Math.max(0, vexSpellSwing(state, playerIndex, cardKind)) * VEX_POWER_SWING
+    Math.max(0, vexSpellSwing(state, playerIndex, cardKind)) * VEX_POWER_SWING +
+    // **Mystic Vortex (VEN-160)** — "During showdowns here, cards with
+    // [Reaction] cost [1 rainbow] more. (Hidden cards have [Reaction].)"
+    //
+    // A surcharge on the same axis the Deflect one uses, so it lands in the one
+    // place a play's rainbow price is computed and both the enumerator and the
+    // validator get it — the split that produces this codebase's offered-then-
+    // refused bugs.
+    //
+    // Scoped to a Showdown AT that battlefield, read off the state rather than
+    // passed in: a Reaction cast into a fight somewhere else is untaxed.
+    (isReactionPlay ? reactionSurchargeNow(state) : 0) -
+    // **Sandswept Tomb (VEN-164)** — "Each spell that chooses one or more units
+    // here that are friendly to it costs [1 rainbow] less."
+    //
+    // Subtracted from the same total rather than applied elsewhere, so a spell
+    // that both taxes and discounts nets out once. The caller floors the result,
+    // which is what keeps a discount from paying the caster.
+    friendlyChoiceRainbowDiscountFor(state, playerIndex, chosenInstanceIds)
   );
 }
 

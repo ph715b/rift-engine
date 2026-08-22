@@ -1,3 +1,4 @@
+import { timingTierOf } from "../engine/timing.js";
 import { repeatExecutionsOf, type GameState, type PlayerState } from "../model/game-state.js";
 import { mayPlaceWithoutPresence, targetingForAnyCard, unitTriggerHasVisionChoice } from "../engine/unit-triggers.js";
 import {
@@ -1080,10 +1081,18 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // Through the same function the enumerator prices with, which is the whole
   // discipline this block already keeps for `[Deflect]`: two spellings of one
   // surcharge is how the offered-then-refused split has shipped three times.
-  const surcharge = rainbowSurchargeForPlay(state, action.playerIndex, card.kind, [
-    ...chosenUnitsOfPlay(action),
-    ...chosenUnitsOfRepeat(action),
-  ]);
+  const surcharge = rainbowSurchargeForPlay(
+    state,
+    action.playerIndex,
+    card.kind,
+    [...chosenUnitsOfPlay(action), ...chosenUnitsOfRepeat(action)],
+    card.defId,
+    // Mystic Vortex taxes `[Reaction]` plays during a Showdown at its own
+    // battlefield. A from-hidden play counts, which is the card's own reminder
+    // ("Hidden cards have [Reaction]") and the same derivation `timing.ts` makes
+    // one line below its `ambushed` check.
+    action.fromHiddenBattlefieldId !== undefined || timingTierOf(card) === "Reaction",
+  );
   // Bullet Time — the X the action names has to be exactly the rainbow runes it
   // supplies. Checked here rather than trusting the enumerator, since a hand-built
   // action could claim a large X and pay nothing.

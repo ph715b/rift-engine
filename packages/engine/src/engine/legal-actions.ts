@@ -92,6 +92,7 @@ import {
   mayPlayFromTrashAtPrintedPrice,
   mayPlayUnitToBase,
   mayPlayUnitToBattlefield,
+  timingTierOf,
 } from "./timing.js";
 import { RAINBOW, hiddenCardIsPlayable, hideCostFor, isHiddenCard, mayHideWithEnergy } from "./hidden.js";
 import { replacedCostFor } from "./replaced-costs.js";
@@ -948,6 +949,15 @@ export function legalActions(state: GameState): PlayerAction[] {
   for (const { card, fromHiddenBattlefieldId, fromHand, printedPriceAvailable } of playableSources) {
     if (card.kind === "Legend") continue;
     const fromHidden = fromHiddenBattlefieldId !== undefined;
+    // Mystic Vortex (VEN-160) taxes `[Reaction]` plays during a Showdown at its
+    // own battlefield. Derived once here, beside `fromHidden`, and passed to
+    // every `rainbowSurchargeForPlay` call below — the validator derives the
+    // same thing the same way, which is what keeps a taxed play from being
+    // offered at one price and refused at another.
+    //
+    // A from-hidden play counts, which is the card's own reminder ("Hidden cards
+    // have [Reaction]") and matches `timing.ts`'s own derivation.
+    const reactionPlay = fromHidden || timingTierOf(card) === "Reaction";
     // The per-card timing gate, and the whole reason this loop now runs in every
     // state: a Default-tier card is only offered in a Neutral Open state, an
     // [Action] card additionally during Showdowns, a [Reaction] card also onto a
@@ -1982,7 +1992,14 @@ export function legalActions(state: GameState): PlayerAction[] {
       // target-keyed, so unlike `[Deflect]` she can make a variant that targets
       // nothing owe a surcharge, which is why every branch below must go through
       // this figure rather than skipping when the target list is empty.
-      const deflected = rainbowSurchargeForPlay(state, playerIndex, card.kind, chosenUnitsOfPlay(variant));
+      const deflected = rainbowSurchargeForPlay(
+        state,
+        playerIndex,
+        card.kind,
+        chosenUnitsOfPlay(variant),
+        card.defId,
+        reactionPlay,
+      );
 
       // One candidate per discardable card, priced against the DISCOUNTED cost —
       // and taxed for [Deflect] like every other variant.
@@ -2408,10 +2425,14 @@ export function legalActions(state: GameState): PlayerAction[] {
         // repeat and nothing else.
         const repeatIsPayable = repeatDiscardCost === 0 || repeatDiscardable.length > 0;
         const repeatVariant = { ...variant, repeatPaid: true as const, ...planFields };
-        const repeatDeflected = rainbowSurchargeForPlay(state, playerIndex, card.kind, [
-          ...chosenUnitsOfPlay(repeatVariant),
-          ...chosenUnitsOfRepeat(repeatVariant),
-        ]);
+        const repeatDeflected = rainbowSurchargeForPlay(
+          state,
+          playerIndex,
+          card.kind,
+          [...chosenUnitsOfPlay(repeatVariant), ...chosenUnitsOfRepeat(repeatVariant)],
+          card.defId,
+          reactionPlay,
+        );
         // Ezreal - Prodigy's axis, and Irelia - Graceful's with it: they share the
         // field, so a variant carrying an axis owes BOTH reductions or the
         // validator — which applies both — prices it lower than this did. The
@@ -2595,10 +2616,14 @@ export function legalActions(state: GameState): PlayerAction[] {
             // Vex - Cheerless's tax is in this figure too, and once — see the
             // printed-Repeat branch above for why a play that executes three times
             // still owes her only one.
-            const grantedDeflected = rainbowSurchargeForPlay(state, playerIndex, card.kind, [
-              ...chosenUnitsOfPlay(grantedVariant),
-              ...(alsoPrinted ? chosenUnitsOfRepeat(grantedVariant) : []),
-            ]);
+            const grantedDeflected = rainbowSurchargeForPlay(
+              state,
+              playerIndex,
+              card.kind,
+              [...chosenUnitsOfPlay(grantedVariant), ...(alsoPrinted ? chosenUnitsOfRepeat(grantedVariant) : [])],
+              card.defId,
+              reactionPlay,
+            );
             const paidGranted = computeAutoPayment(
               // The pool MINUS the foreign pip's reserved runes — see
               // `reserveForeignPip` for why they come out first.
