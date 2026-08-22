@@ -22,6 +22,7 @@ function emptyPlayer(id: string, name: string, legend: LegendInstance): PlayerSt
     spellChoiceDrawnBattlefieldIds: [],
     starSpringUsedBattlefieldIds: [],
     nonTokenUnitSurchargeThisTurn: 0,
+    gearAbilitiesActivatedThisTurn: 0,
     deck: [],
     hand: [],
     trash: [],

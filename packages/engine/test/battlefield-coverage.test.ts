@@ -9,7 +9,7 @@ import {
   beginningPhaseBattlefieldDefIds,
 } from "../src/engine/battlefield-abilities.js";
 import { continuousBattlefieldDefIds } from "../src/engine/battlefield-continuous.js";
-import { activatedAbilityDefIds } from "../src/engine/activated-abilities.js";
+import { abilityDiscountBattlefieldDefIds, activatedAbilityDefIds } from "../src/engine/activated-abilities.js";
 import { deathReplacementBattlefieldDefIds } from "../src/engine/death-ward.js";
 import { COMPLETE_BATTLEFIELD_SETS, implementingModule, setCodeOf } from "../src/engine/coverage.js";
 
@@ -44,7 +44,7 @@ describe("every printed battlefield does something", () => {
   const inProgress = defs.filter((d) => !COMPLETE_BATTLEFIELD_SETS.includes(setCodeOf(d.id)));
 
   /**
-   * The FIVE places a battlefield's printed text can be implemented.
+   * The SIX places a battlefield's printed text can be implemented.
    *
    * The fourth is Forge of the Fluft, whose text is an ACTIVATED ability its
    * controller's Legend has — so it is keyed by the battlefield's own defId in
@@ -61,6 +61,11 @@ describe("every printed battlefield does something", () => {
    * it does not know about reads as a battlefield that does nothing** — which is
    * exactly what happened when Altar of Blood landed and this list still had four
    * entries.
+   *
+   * The sixth is Risen Altar and Piltovan Forge, whose whole text is a DISCOUNT on
+   * some OTHER ability's cost. They are not keyed by their own defId anywhere —
+   * there is no ability entry to find — so they are reported by their own export
+   * from `activated-abilities.ts`. Same lesson, one wave later.
    */
   const implemented = new Map<string, string>([
     ...battlefieldAbilityDefIds().map((id) => [id, "triggered"] as const),
@@ -70,6 +75,7 @@ describe("every printed battlefield does something", () => {
       .filter((id) => defs.some((d) => d.id === id))
       .map((id) => [id, "granted activated ability"] as const),
     ...deathReplacementBattlefieldDefIds().map((id) => [id, "death replacement"] as const),
+    ...abilityDiscountBattlefieldDefIds().map((id) => [id, "ability cost discount"] as const),
   ]);
 
   it("the pool is 64 battlefields — 24 OGN, 15 SFD, 15 UNL, 10 VEN, and OGS prints none", () => {

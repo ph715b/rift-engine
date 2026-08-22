@@ -42,7 +42,7 @@ import {
   readyPermanent,
 } from "./effect-helpers.js";
 import { placeRecruitToken } from "./token.js";
-import { destroyUnit, fileIntoTrash, spendXp } from "./effect-helpers.js";
+import { destroyUnit, fileIntoTrash, gainXp, spendXp } from "./effect-helpers.js";
 import { effectiveMight } from "./effective-might.js";
 import { canonicalDefId } from "../cards/card-loader.js";
 import { eligibleTargets, findUnitAnywhere, findUnitOnBattlefield } from "./target-lookup.js";
@@ -579,6 +579,9 @@ const JAYCE_READY = "VEN-149-ready";
 const JAYCE_READY_EMPOWERED = "VEN-149-ready-empowered";
 
 const FORGE_OF_THE_FLUFT = "SFD-208";
+/** Gardens of Becoming (UNL-213) — "Units here have '[Exhaust]: Gain 1 XP.'" */
+const GARDENS_OF_BECOMING = "UNL-213";
+const GARDENS_OF_BECOMING_XP = 1;
 const DARIUS_HAND_OF_NOXUS = "OGN-253";
 const KAISA_DAUGHTER_OF_THE_VOID = "OGN-247";
 const YASUO_UNFORGIVEN = "OGN-259";
@@ -966,6 +969,30 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
       players[ctx.casterIndex] = { ...actor, restrictedGearPower: actor.restrictedGearPower + ORNN_GEAR_POWER };
       return { ...state, players };
     },
+  },
+  [GARDENS_OF_BECOMING]: {
+    // Gardens of Becoming (UNL-213) — "Units here have '[Exhaust]: Gain 1 XP.'"
+    //
+    // The SECOND battlefield to grant an activated ability, and it differs from
+    // Forge of the Fluft above in the one way that mattered: the Forge grants to
+    // a player's LEGEND, which `abilitiesAvailableTo` can identify from a bare
+    // defId, while this grants to whatever is STANDING HERE. Answering that needs
+    // the source's `instanceId`, which the parameter did not carry — see the
+    // widening on `abilitiesAvailableTo` and why every real caller already has it.
+    //
+    // **Both sides.** "Units here", no owner named, like every other unqualified
+    // battlefield ability — so an enemy unit standing here can exhaust for XP
+    // too, and `ctx.casterIndex` is whoever activated it rather than whoever
+    // controls the battlefield.
+    //
+    // 414.5 decides whose exhaust pays: "the Exhaust symbol represents the cost
+    // 'Exhaust this' or 'Exhaust me'", and the UNIT is who has the ability. So
+    // the unit exhausts and the battlefield does not — the reading the Forge and
+    // Heimerdinger both already record.
+    kind: "Unit",
+    cost: { exhaust: true },
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => gainXp(state, ctx.casterIndex, GARDENS_OF_BECOMING_XP),
   },
   [FORGE_OF_THE_FLUFT]: {
     // Forge of the Fluft (SFD-208) — "While you control this battlefield,
@@ -2458,8 +2485,20 @@ export function activationCostFor(
   defId: string,
   modeId?: string,
   targetUnitInstanceId?: string,
+  /** WHICH permanent is activating — needed by the two battlefields that
+   *  discount an ability by what the SOURCE is or where it stands (Risen Altar,
+   *  Piltovan Forge). Optional for the same reason `targetUnitInstanceId` is: a
+   *  caller pricing an ability in the abstract has no source, and gets the
+   *  undiscounted price. All five real callers hold one. */
+  sourceInstanceId?: string,
 ): ActivationCost {
-  const cost = applyEnergyDiscount(state, playerIndex, activationCostOf(defId, modeId));
+  const cost = battlefieldAbilityDiscount(
+    state,
+    playerIndex,
+    defId,
+    applyEnergyDiscount(state, playerIndex, activationCostOf(defId, modeId)),
+    sourceInstanceId,
+  );
   if (!EQUIP_ENERGY_REDUCED_BY_TARGET_MIGHT.has(canonicalDefId(defId)) || cost.energy === undefined) return cost;
   const reduction =
     targetUnitInstanceId !== undefined
@@ -2641,7 +2680,7 @@ export function canPayActivationCost(
   // `activationPayment` in the enumerator and by the re-derivation in
   // `validate-activate-ability`. Priced with no target, which for every check
   // this function actually makes is the only price there is.
-  const cost = activationCostFor(state, playerIndex, abilityDefId, modeId);
+  const cost = activationCostFor(state, playerIndex, abilityDefId, modeId, undefined, card.instanceId);
   if (cost.exhaust && card.exhausted) return false;
   // Asked through `spendXp` rather than by comparing numbers, so "can I pay"
   // and "pay it" can never disagree about what counts as enough.
@@ -2740,7 +2779,9 @@ export function payActivationCost(
    *  Re-derived here rather than trusted, the convention every cost site keeps. */
   targetUnitInstanceId?: string,
 ): GameState | undefined {
-  const cost = activationCostFor(state, playerIndex, defId, modeId, targetUnitInstanceId);
+  // `instanceId` IS the source — Risen Altar and Piltovan Forge discount by what
+  // it is and where it stands, and this function has had it all along.
+  const cost = activationCostFor(state, playerIndex, defId, modeId, targetUnitInstanceId, instanceId);
   let next = state;
   if (cost.xp !== undefined) {
     const spent = spendXp(next, playerIndex, cost.xp);
@@ -3020,6 +3061,118 @@ const HEIMERDINGER_INVENTOR = "OGN-111";
  * the exhaust is his — which also means the card he borrowed it from can be
  * exhausted already and it makes no difference.
  */
+/**
+ * The battlefields whose whole printed text is an ability-cost DISCOUNT, for
+ * `battlefield-coverage.test.ts`.
+ *
+ * A SIXTH source, and it needed its own export for the reason Altar of Blood
+ * needed the fifth: that gate is the only thing in the repo that can see a
+ * battlefield at all, and one implemented in a way the gate does not know about
+ * goes on being reported as doing nothing. These two are not keyed by their own
+ * defId in `ACTIVATED_ABILITIES` the way Forge of the Fluft and Gardens of
+ * Becoming are — they modify OTHER abilities' costs, so there is no entry to find.
+ */
+export function abilityDiscountBattlefieldDefIds(): string[] {
+  return [RISEN_ALTAR, PILTOVAN_FORGE];
+}
+
+/** Risen Altar (VEN-163) — "[Empower] costs of your units here cost [1 Energy] or
+ *  [1 rainbow] less." */
+const RISEN_ALTAR = "VEN-163";
+/** Piltovan Forge (VEN-161) — "While you control this battlefield, the first
+ *  friendly gear activated ability played each turn costs [1 Energy] less." */
+const PILTOVAN_FORGE = "VEN-161";
+const BATTLEFIELD_ABILITY_DISCOUNT = 1;
+
+/**
+ * The two battlefields that discount an ACTIVATED ability by what its source is
+ * or where it stands.
+ *
+ * Applied inside `activationCostFor`, which is the ONE function the enumerator,
+ * the validator, `canPayActivationCost` and the executor all price through — a
+ * discount visible to only some of them is this codebase's offered-then-refused
+ * bug, and the reason neither card gets its own path.
+ */
+function battlefieldAbilityDiscount(
+  state: GameState,
+  playerIndex: 0 | 1,
+  abilityDefId: string,
+  cost: ActivationCost,
+  sourceInstanceId: string | undefined,
+): ActivationCost {
+  if (sourceInstanceId === undefined) return cost;
+  const owner = state.players[playerIndex];
+
+  // **Risen Altar** — "[Empower] costs of YOUR units HERE cost [1 Energy] or
+  // [1 rainbow] less."
+  //
+  // "An [Empower] cost" is identified by the ability being the GENERATED one:
+  // `empowerAbilities` keys those by the card's own defId, so a card with an
+  // `empowerCost` whose ability is being activated under that same id is one.
+  // Nothing else in the pool can produce that pairing.
+  const empowering = defaultCardRegistry().tryGet(canonicalDefId(abilityDefId))?.empowerCost !== undefined;
+  if (empowering) {
+    const atAltar = state.battlefields.some(
+      (bf) => bf.defId === RISEN_ALTAR && (bf.units[owner.id] ?? []).some((u) => u.instanceId === sourceInstanceId),
+    );
+    if (atAltar) return reduceByOne(cost);
+  }
+
+  // **Piltovan Forge** — "while you CONTROL this battlefield, the FIRST friendly
+  // GEAR activated ability played each turn costs [1 Energy] less."
+  //
+  // Controller-scoped and game-wide, like Ornn's Forge which it is the ability
+  // twin of — the gear activates from a base, not from this battlefield, so this
+  // is not positional. "The first ... each turn" is why
+  // `PlayerState.gearAbilitiesActivatedThisTurn` exists: the discount is a fact
+  // about how many have already gone, not about the gear.
+  const isFriendlyGear = owner.activeGear.some((g) => g.instanceId === sourceInstanceId);
+  const controlsForge = state.battlefields.some((bf) => bf.defId === PILTOVAN_FORGE && bf.controllerId === owner.id);
+  if (isFriendlyGear && controlsForge && owner.gearAbilitiesActivatedThisTurn === 0) {
+    return cost.energy === undefined
+      ? cost
+      : { ...cost, energy: Math.max(0, cost.energy - BATTLEFIELD_ABILITY_DISCOUNT) };
+  }
+  return cost;
+}
+
+/**
+ * Risen Altar's "[1 Energy] OR [1 rainbow] less", taken as ENERGY FIRST.
+ *
+ * **A simplification, and named as one.** The card offers a choice between two
+ * reductions, and this engine takes the Energy whenever there is Energy to take.
+ * That is right whenever only one of the two is present — which is every printed
+ * `[Empower]` cost in the pool bar none — and it takes the choice away only for a
+ * cost carrying BOTH, of which there are currently none. Recorded in
+ * docs/rules-conformance.md; fixable by generating two modes the way an
+ * ALTERNATIVE Empower cost already does (827.1.c.2).
+ */
+function reduceByOne(cost: ActivationCost): ActivationCost {
+  if (cost.energy !== undefined && cost.energy > 0) {
+    return { ...cost, energy: cost.energy - BATTLEFIELD_ABILITY_DISCOUNT };
+  }
+  if (cost.power !== undefined && cost.power.count > 0) {
+    const count = cost.power.count - BATTLEFIELD_ABILITY_DISCOUNT;
+    if (count > 0) return { ...cost, power: { ...cost.power, count } };
+    // DELETED rather than set to undefined — `exactOptionalPropertyTypes` is on,
+    // and an absent `power` is what "this cost has no Power term" means to every
+    // reader of it.
+    const { power: _spent, ...rest } = cost;
+    return rest;
+  }
+  return cost;
+}
+
+/** Is this unit standing at a Gardens of Becoming? Either side — the card names
+ *  no owner. */
+function standsAtGardensOfBecoming(state: GameState, unitInstanceId: string): boolean {
+  return state.battlefields.some(
+    (bf) =>
+      bf.defId === GARDENS_OF_BECOMING &&
+      Object.values(bf.units).some((units) => units.some((u) => u.instanceId === unitInstanceId)),
+  );
+}
+
 export function abilitiesAvailableTo(
   state: GameState,
   playerIndex: 0 | 1,
@@ -3028,7 +3181,16 @@ export function abilitiesAvailableTo(
    *  copies nothing. `grantedAbilitiesThisTurn` is Dominus' grant, read off the
    *  live instance for the same reason — a caller holding only a defId has no
    *  grant to report, and a unit is the only thing that can carry one. */
-  source: { defId: string; attachedToInstanceId?: string | null; grantedAbilitiesThisTurn?: readonly string[] },
+  source: {
+    defId: string;
+    attachedToInstanceId?: string | null;
+    grantedAbilitiesThisTurn?: readonly string[];
+    /** WHICH instance — needed only by Gardens of Becoming, whose grant is
+     *  positional ("units HERE"). Optional for the same reason
+     *  `attachedToInstanceId` is: a caller holding only a defId has no location
+     *  and gets no positional grant. All four real callers pass a live permanent. */
+    instanceId?: string;
+  },
 ): { abilityDefId: string; definition: ActivatedAbilityDefinition }[] {
   if (source.defId === HEIMERDINGER_INVENTOR) {
     const actor = state.players[playerIndex];
@@ -3098,6 +3260,12 @@ export function abilitiesAvailableTo(
   // through it. A parallel path would be a fourth place to keep in step.
   if (source.defId === state.players[playerIndex].legend.defId && controlsForgeOfTheFluft(state, playerIndex)) {
     granted.push({ abilityDefId: FORGE_OF_THE_FLUFT, definition: allActivatedAbilities()[FORGE_OF_THE_FLUFT]! });
+  }
+  // Gardens of Becoming — "units HERE have '[Exhaust]: Gain 1 XP'". Positional
+  // rather than controller-scoped, and offered to BOTH sides: the card names no
+  // owner, like every other unqualified battlefield ability.
+  if (source.instanceId !== undefined && standsAtGardensOfBecoming(state, source.instanceId)) {
+    granted.push({ abilityDefId: GARDENS_OF_BECOMING, definition: allActivatedAbilities()[GARDENS_OF_BECOMING]! });
   }
   // Jayce - Defender of Tomorrow's two READY abilities. His own defId is taken by
   // the generated `[Empower]`, so they carry suffixed keys and are offered here —

@@ -78,6 +78,7 @@ export function buildPlayerFromDeckList(
     spellChoiceDrawnBattlefieldIds: [],
     starSpringUsedBattlefieldIds: [],
     nonTokenUnitSurchargeThisTurn: 0,
+    gearAbilitiesActivatedThisTurn: 0,
     deck,
     hand: [],
     trash: [],

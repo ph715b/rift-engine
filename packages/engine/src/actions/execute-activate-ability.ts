@@ -89,6 +89,26 @@ export function executeActivateAbility(state: GameState, action: ActivateAbility
         )
       : chosen;
 
+  // Piltovan Forge's counter — "the FIRST friendly gear activated ability played
+  // each turn". Bumped AFTER the cost has been priced and paid above, for the
+  // reason `gearPlayedThisTurn`'s own site gives: the discount applies to the
+  // activation being paid for, so counting it first would price the first one as
+  // if it were the second.
+  //
+  // GEAR only, read off the RESOLVED source like the tally above rather than off
+  // the action, which names an instance and not what it is.
+  const tallied =
+    found.card.kind === "Gear"
+      ? {
+          ...counted,
+          players: counted.players.map((p, i) =>
+            i === action.playerIndex
+              ? { ...p, gearAbilitiesActivatedThisTurn: p.gearAbilitiesActivatedThisTurn + 1 }
+              : p,
+          ) as typeof counted.players,
+        }
+      : counted;
+
   // Prize of Progress's "when you use an activated ability of a gear".
   //
   // HELD (383) like every other event, and raised BEFORE the effect resolves —
@@ -96,7 +116,7 @@ export function executeActivateAbility(state: GameState, action: ActivateAbility
   // still been used. `sourceKind` comes off the RESOLVED source rather than the
   // action, which names an instance and not what it is; the Ezreal tally just
   // above reads it the same way and for the same reason.
-  const announced = holdEventTrigger(counted, {
+  const announced = holdEventTrigger(tallied, {
     kind: "abilityActivated",
     activatorIndex: action.playerIndex,
     sourceKind: found.card.kind,

@@ -80,6 +80,7 @@ export function makePlayer(id: string, overrides: Partial<PlayerState> = {}): Pl
     spellChoiceDrawnBattlefieldIds: [],
     starSpringUsedBattlefieldIds: [],
     nonTokenUnitSurchargeThisTurn: 0,
+    gearAbilitiesActivatedThisTurn: 0,
     deck: [],
     hand: [],
     trash: [],

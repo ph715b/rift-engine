@@ -107,7 +107,18 @@ export function validateActivateAbility(state: GameState, action: ActivateAbilit
   // Priced against the TARGET this action names — UNL-188's Energy is reduced
   // by the chosen unit's Might, so a cost read without it would refuse the very
   // payment the enumerator offered.
-  const cost = activationCostFor(state, action.playerIndex, abilityDefId, mode.id, action.targetUnitInstanceId);
+  const cost = activationCostFor(
+    state,
+    action.playerIndex,
+    abilityDefId,
+    mode.id,
+    action.targetUnitInstanceId,
+    // The SOURCE, for Risen Altar and Piltovan Forge — battlefields that discount
+    // by what the source is or where it stands. The enumerator passes the same
+    // thing, which is what keeps a discounted ability from being offered at one
+    // price and refused at another.
+    action.permanentInstanceId,
+  );
   if (cost.energy !== undefined) {
     const afterPower = cost.power
       ? (payPowerFromChanneled(state, action.playerIndex, cost.power.domain, cost.power.count) ?? state)

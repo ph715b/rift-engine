@@ -520,6 +520,8 @@ export function runEnd(state: GameState): GameState {
     starSpringUsedBattlefieldIds: [] as string[],
     // Vaults of Helia's this-turn tax, cleared beside it.
     nonTokenUnitSurchargeThisTurn: 0,
+    // Piltovan Forge's once-per-turn gear-ability discount, cleared beside it.
+    gearAbilitiesActivatedThisTurn: 0,
     unitsEnterReadyThisTurn: false,
     restrictedSpellEnergy: 0,
     restrictedUnitEnergy: 0,

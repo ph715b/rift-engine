@@ -543,6 +543,18 @@ export interface PlayerState {
    * "This turn" state, cleared by `runEnd` for both players with the rest.
    */
   nonTokenUnitSurchargeThisTurn: number;
+  /**
+   * How many friendly GEAR activated abilities this player has used this turn —
+   * Piltovan Forge's "the FIRST friendly gear activated ability played each turn
+   * costs [1 Energy] less".
+   *
+   * The ability twin of `gearPlayedThisTurn`, which Ornn's Forge reads for the
+   * same clause about gear PLAYS, and a counter for the same reason: the discount
+   * is a fact about how many have already gone, not about the gear.
+   *
+   * "This turn" state, cleared by `runEnd` for both players with the rest.
+   */
+  gearAbilitiesActivatedThisTurn: number;
   deck: CardInstance[];
   hand: CardInstance[];
   trash: CardInstance[];

@@ -403,14 +403,24 @@ function activateAbilityCandidates(state: GameState, actor: PlayerState, playerI
         // the un-reduced cost would withhold the Gauntlets entirely whenever the
         // player could afford them only with the discount. Each candidate is
         // re-priced against its own target in the fan-out below.
-        const cost = activationCostFor(state, playerIndex, abilityDefId, mode.id);
+        // The SOURCE, for the two battlefields that discount by what it is or where
+        // it stands. The validator and the payer pass the same, so all three price
+        // an activation identically.
+        const cost = activationCostFor(state, playerIndex, abilityDefId, mode.id, undefined, permanent.instanceId);
         const payment = cost.energy !== undefined ? activationPayment(state, playerIndex, cost) : undefined;
         if (cost.energy !== undefined && payment === undefined) continue;
         /** This ability's action for a chosen target, re-priced when the cost
          *  depends on it. Returns undefined when that target's price is
          *  unpayable, so a candidate is never offered and then refused. */
         const pricedFor = (action: ActivateAbilityAction, targetUnitInstanceId: string): ActivateAbilityAction | undefined => {
-          const targeted = activationCostFor(state, playerIndex, abilityDefId, mode.id, targetUnitInstanceId);
+          const targeted = activationCostFor(
+            state,
+            playerIndex,
+            abilityDefId,
+            mode.id,
+            targetUnitInstanceId,
+            permanent.instanceId,
+          );
           if (targeted.energy === undefined) return action;
           if (targeted.energy === cost.energy) return action; // nothing target-dependent moved
           const repriced = activationPayment(state, playerIndex, targeted);

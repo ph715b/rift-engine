@@ -79,6 +79,7 @@ function player(id: string) {
     spellChoiceDrawnBattlefieldIds: [],
     starSpringUsedBattlefieldIds: [],
     nonTokenUnitSurchargeThisTurn: 0,
+    gearAbilitiesActivatedThisTurn: 0,
     deck: [], hand: [], trash: [], banished: [], activeGear: [], runeDeck: [], channeled: [], baseUnits: [],
     points: 0, xp: 0, floatingEnergy: 0, floatingPower: {}, floatingRainbowPower: 0, cardsPlayedThisTurn: 0,
     firstFriendlyDeathUsedThisTurn: false, extraMightPerBuffThisTurn: 0, discardedThisTurn: false,
