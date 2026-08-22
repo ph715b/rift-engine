@@ -84,6 +84,20 @@ export type BattlefieldMoment =
   /** A Spell chose a unit standing here. `playerIndex` is the CHOOSING player
    *  and `unitInstanceId` is the unit that was chosen. */
   | "unitChosenBySpell"
+  /**
+   * A unit was PLAYED here. `playerIndex` is whoever played it and
+   * `unitInstanceId` is the unit that landed.
+   *
+   * **PLAYED, not "became present"** — the distinction Rockfall Path's own note
+   * already draws. A unit that MOVES here, is forced here by Charm, or arrives
+   * by a Recall has not been played, and the two cards on this moment (Star
+   * Spring, Valley of Idols) both say "plays".
+   *
+   * Fired by `execute-play-card` from the reinforce branch, after the unit is on
+   * the board and after its own on-play trigger is dispatched — so a battlefield
+   * that asks about "a unit here" sees it standing there.
+   */
+  | "unitPlayedHere"
   /** `playerIndex`'s turn is ending — the moment a DELAYED battlefield ability
    *  fires (Targon's Peak's "…at the end of this turn"). Fired by
    *  `turn-manager.runEnd` for every battlefield, so only an `applies` keeps it
@@ -197,6 +211,18 @@ const PROTECTIVE_SANDS_ENERGY = 1;
  *  damage, play a 1 [Might] Bird unit token with [Deflect]." */
 const TRAPPING_GROUNDS = "UNL-217";
 const TRAPPING_GROUNDS_EXCESS = 3;
+
+/** Star Spring — "The FIRST time a player plays a non-token unit here each turn,
+ *  they may move another unit they control here to its base." */
+const STAR_SPRING = "UNL-215";
+/** Valley of Idols — "When a player plays a unit here, they may pay [1 Energy]
+ *  to [Buff] it." */
+const VALLEY_OF_IDOLS = "UNL-218";
+const VALLEY_OF_IDOLS_ENERGY = 1;
+/** Threshold of the Gray — "When combat starts here, the attacker and defender
+ *  each [Add] [1 Energy]." */
+const THRESHOLD_OF_THE_GRAY = "VEN-166";
+const THRESHOLD_ENERGY = 1;
 
 /** Frozen Fortress — "At the start of each player's Beginning Phase, deal 1 to
  *  each unit here. (This happens before scoring.)" */
@@ -454,6 +480,94 @@ export const BATTLEFIELD_TRIGGERS: Record<string, readonly BattlefieldTriggerDef
     },
   ],
 
+  [STAR_SPRING]: [
+    {
+      // "The FIRST time a player plays a NON-TOKEN unit here each turn, they may
+      // move ANOTHER unit they control here to its base."
+      //
+      // Reported from playtesting as "star spring battlefield not triggering" —
+      // it was not written, along with 24 other UNL/VEN battlefields.
+      //
+      // Three clauses and all three are asked in `applies`, so a play that fails
+      // any of them places no Pending Item:
+      //
+      //  - **NON-TOKEN.** A Recruit landing here is not the trigger.
+      //  - **THE FIRST TIME EACH TURN, PER PLAYER.** "A player ... they" — the
+      //    limit is per player, not per battlefield, so both players get one.
+      //    Counted off `PlayerState.unitsPlayedAtBattlefieldThisTurn`, which is
+      //    keyed by battlefield for exactly this.
+      //  - **ANOTHER unit they control HERE.** With nothing else of theirs
+      //    standing here there is nothing to move and no question worth opening.
+      on: "unitPlayedHere",
+      applies: (state, event) => {
+        const played = unitsAt(state, event.battlefieldId).find(
+          ({ unit }) => unit.instanceId === event.unitInstanceId,
+        );
+        if (!played || played.unit.isToken === true) return false;
+        if (starSpringUsedThisTurn(state, event.playerIndex, event.battlefieldId)) return false;
+        return ownUnitsAt(state, event.playerIndex, event.battlefieldId).some(
+          (u) => u.instanceId !== event.unitInstanceId,
+        );
+      },
+      resolve: (state, event) =>
+        parkDecision(markStarSpringUsed(state, event.playerIndex, event.battlefieldId), {
+          kind: `${STAR_SPRING}-move`,
+          playerIndex: event.playerIndex,
+          battlefieldId: event.battlefieldId,
+          ...(event.unitInstanceId !== undefined ? { targetInstanceId: event.unitInstanceId } : {}),
+        }),
+    },
+  ],
+  [VALLEY_OF_IDOLS]: [
+    {
+      // "When a player plays a unit here, they may pay [1 Energy] to [Buff] it."
+      //
+      // "A player ... they" — EITHER player's play, and the payment and the buff
+      // are both theirs. No first-time-each-turn clause, unlike Star Spring one
+      // entry up, and no non-token clause either: a Recruit played here can be
+      // buffed.
+      //
+      // The Energy is asked in `applies` (416.3), so a player who cannot pay is
+      // not asked a question whose only answer is no.
+      on: "unitPlayedHere",
+      applies: (state, event) => payEnergyFromPool(state, event.playerIndex, VALLEY_OF_IDOLS_ENERGY) !== undefined,
+      resolve: (state, event) =>
+        parkDecision(state, {
+          kind: `${VALLEY_OF_IDOLS}-buff`,
+          playerIndex: event.playerIndex,
+          battlefieldId: event.battlefieldId,
+          ...(event.unitInstanceId !== undefined ? { targetInstanceId: event.unitInstanceId } : {}),
+        }),
+    },
+  ],
+  [THRESHOLD_OF_THE_GRAY]: [
+    {
+      // "When combat starts here, the attacker and defender each [Add] [1
+      // Energy]."
+      //
+      // **On the `defend` moment, which is the one that fires when a Combat opens
+      // here** — `cleanup.beginCombatAt` raises it once per combat. Its
+      // `playerIndex` is the DEFENDER, which is why this entry is the only one in
+      // the table that reads both seats: the ability is not "yours", it is the
+      // battlefield's, and it pays both sides.
+      //
+      // MANDATORY and symmetric, so it asks nothing.
+      //
+      // `[Add]` is FLOATING Energy (204.2), not a channelled rune — the same
+      // thing the Gold token's ability adds, and it expires at end of turn like
+      // any other float.
+      on: "defend",
+      resolve: (state, event) => {
+        const defender = event.playerIndex;
+        const attacker: 0 | 1 = defender === 0 ? 1 : 0;
+        return [defender, attacker].reduce(
+          (next, seat) =>
+            updatePlayer(next, seat as 0 | 1, (p) => ({ ...p, floatingEnergy: p.floatingEnergy + THRESHOLD_ENERGY })),
+          state,
+        );
+      },
+    },
+  ],
   [AMATEUR_RECITAL]: [
     {
       // "When you hold here, you may move a unit AT A BATTLEFIELD to its base."
@@ -959,6 +1073,57 @@ export const battlefieldDecisions: Record<string, DecisionDefinition> = {
       // the same call Fight or Flight records.
       optionId === "decline" ? state : recallUnitToBase(state, optionId),
   },
+  [`${STAR_SPRING}-move`]: {
+    prompt: () => "Star Spring: move another unit you control here to its base?",
+    options: (state, d) => {
+      if (d.battlefieldId === undefined) return [];
+      // "ANOTHER unit they control here" — theirs, standing here, and not the one
+      // just played. All three are re-read at resolution rather than captured:
+      // the response window this opens can move units in and out, and "here"
+      // means when the ability resolves.
+      const others = ownUnitsAt(state, d.playerIndex, d.battlefieldId).filter(
+        (u) => u.instanceId !== d.targetInstanceId,
+      );
+      if (others.length === 0) return [];
+      return [
+        { id: "decline", label: "Decline" },
+        ...others.map((u) => ({ id: u.instanceId, label: `Move ${u.name} to base`, instanceId: u.instanceId })),
+      ];
+    },
+    resolve: (state, _d, optionId) =>
+      // A MOVE, so `recallUnitToBase` — the same 454 distinction Amateur Recital's
+      // entry records, and the same helper.
+      optionId === "decline" ? state : recallUnitToBase(state, optionId),
+  },
+  [`${VALLEY_OF_IDOLS}-buff`]: {
+    prompt: () => "Valley of Idols: pay 1 Energy to buff the unit you just played?",
+    options: (state, d) => {
+      if (d.targetInstanceId === undefined) return [];
+      // The unit can have died or moved inside the response window this opened —
+      // "buff IT" is about that unit, so a unit no longer here is no question.
+      const stillHere = ownUnitsAt(state, d.playerIndex, d.battlefieldId ?? "").some(
+        (u) => u.instanceId === d.targetInstanceId,
+      );
+      if (!stillHere) return [];
+      if (payEnergyFromPool(state, d.playerIndex, VALLEY_OF_IDOLS_ENERGY) === undefined) return [];
+      return [
+        { id: "pay", label: "Pay 1 Energy to [Buff] it" },
+        { id: "decline", label: "Decline" },
+      ];
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline" || d.targetInstanceId === undefined) return state;
+      // Pay first and re-check, the discipline Power Nexus records: the trigger
+      // opened a response window and the Energy can be gone.
+      const paid = payEnergyFromPool(state, d.playerIndex, VALLEY_OF_IDOLS_ENERGY);
+      if (paid === undefined) return state;
+      // `[Buff]` is "give it a +1 Might buff IF IT DOESN'T HAVE ONE" (the card's
+      // own reminder) — `addBuff` is the shared helper that already reads that
+      // way, so a unit that is already buffed pays and gains nothing rather than
+      // stacking.
+      return addBuff(paid, d.targetInstanceId);
+    },
+  },
   [`${DUSK_ROSE_LAB}-kill`]: {
     prompt: () => "Dusk Rose Lab: kill a unit you control here to draw 1?",
     options: (state, d) => {
@@ -1429,6 +1594,26 @@ function channelRunes(state: GameState, playerIndex: 0 | 1, count: number): Game
  *  is exactly what this is for. */
 export function beginningPhaseBattlefieldDefIds(): string[] {
   return [OBELISK_OF_POWER, THE_ARENAS_GREATEST, FROZEN_FORTRESS, DUSK_ROSE_LAB];
+}
+
+/** Has this player already had Star Spring's once-per-turn offer here? */
+function starSpringUsedThisTurn(state: GameState, playerIndex: 0 | 1, battlefieldId: string): boolean {
+  return state.players[playerIndex].starSpringUsedBattlefieldIds.includes(battlefieldId);
+}
+
+/**
+ * Spends it, at the moment the offer is RAISED rather than when it is answered.
+ *
+ * "The first TIME a player plays a non-token unit here each turn" is about the
+ * play, not about the move — so declining still spends the turn's offer, and a
+ * second unit played here the same turn asks nothing. Marking at resolution
+ * instead would let a player decline twice and take the third.
+ */
+function markStarSpringUsed(state: GameState, playerIndex: 0 | 1, battlefieldId: string): GameState {
+  return updatePlayer(state, playerIndex, (p) => ({
+    ...p,
+    starSpringUsedBattlefieldIds: [...p.starSpringUsedBattlefieldIds, battlefieldId],
+  }));
 }
 
 /** Every unit standing at a battlefield, on both sides, with whose it is. */

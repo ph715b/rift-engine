@@ -53,6 +53,7 @@ function makePlayer(id: string): PlayerState {
     chosenChampionDefId: "TEST-CHAMPION",
     readyRunesAtEndOfTurn: 0,
     spellChoiceDrawnBattlefieldIds: [],
+    starSpringUsedBattlefieldIds: [],
     deck: [],
     hand: [],
     trash: [],

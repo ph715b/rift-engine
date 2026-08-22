@@ -78,6 +78,7 @@ export function makePlayer(id: string, overrides: Partial<PlayerState> = {}): Pl
     chosenChampionDefId: "TEST-CHAMPION",
     readyRunesAtEndOfTurn: 0,
     spellChoiceDrawnBattlefieldIds: [],
+    starSpringUsedBattlefieldIds: [],
     deck: [],
     hand: [],
     trash: [],

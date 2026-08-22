@@ -76,6 +76,7 @@ export function buildPlayerFromDeckList(
     chosenChampionDefId: deckList.championId,
     readyRunesAtEndOfTurn: 0,
     spellChoiceDrawnBattlefieldIds: [],
+    starSpringUsedBattlefieldIds: [],
     deck,
     hand: [],
     trash: [],

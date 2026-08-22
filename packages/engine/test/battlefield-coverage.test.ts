@@ -1,3 +1,6 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { loadBattlefieldDefinitions } from "../src/cards/card-loader.js";
 import {
@@ -151,12 +154,55 @@ describe("every printed battlefield does something", () => {
   it("every TRIGGERED battlefield declares a moment something actually fires", () => {
     // A registry entry whose `on` names a moment no site produces would be a
     // silent no-op — the shape `resolvePendingTrigger` was changed to throw for.
-    const fired = new Set(["hold", "conquer", "defend", "unitMovedFrom", "unitChosenBySpell", "endOfTurn"]);
+    //
+    // **DERIVED from the source, not a hand-written list.** This used to carry a
+    // copy of the six moments that existed when it was written, so adding a
+    // seventh (`unitPlayedHere`, for Star Spring and Valley of Idols) turned it
+    // red for the one reason it is not meant to catch: a moment that IS fired and
+    // was simply missing from the copy. That is the premise-pin failure this repo
+    // keeps recording — a list maintained in two places drifts, and the copy in
+    // front of you wins.
+    //
+    // Scanning for the call sites asserts the RELATIONSHIP instead: a moment is
+    // legitimate exactly when some file passes it to `holdBattlefieldTrigger`. A
+    // new moment that is declared and never fired still fails, which is the whole
+    // point; a new moment that is properly wired passes without editing this.
+    const fired = firedMoments();
+    expect(fired.size, "no firing site was found at all — the scan is measuring nothing").toBeGreaterThan(5);
     for (const [defId, abilities] of Object.entries(BATTLEFIELD_TRIGGERS)) {
       expect(abilities.length, `${defId} has an empty ability list`).toBeGreaterThan(0);
       for (const ability of abilities) {
-        expect(fired.has(ability.on), `${defId} listens for "${ability.on}", which nothing fires`).toBe(true);
+        expect(
+          fired.has(ability.on),
+          `${defId} listens for "${ability.on}", which no call to holdBattlefieldTrigger produces`,
+        ).toBe(true);
       }
     }
   });
 });
+
+/**
+ * Every moment string handed to `holdBattlefieldTrigger` anywhere in `src`.
+ *
+ * A source scan rather than a runtime hook, because the firing sites are spread
+ * across `cleanup`, `execute-move-unit`, `execute-recall-unit`,
+ * `execute-play-card` and `effect-helpers` — there is no single place to
+ * instrument, and a registry of firers would be the same two-copies problem one
+ * level up.
+ */
+function firedMoments(): Set<string> {
+  const found = new Set<string>();
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name.endsWith(".ts")) {
+        for (const m of readFileSync(full, "utf8").matchAll(/holdBattlefieldTrigger\(\s*[^,]+,\s*"([A-Za-z]+)"/g)) {
+          found.add(m[1]!);
+        }
+      }
+    }
+  };
+  walk(fileURLToPath(new URL("../src", import.meta.url)));
+  return found;
+}

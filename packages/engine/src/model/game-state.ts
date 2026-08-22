@@ -518,6 +518,19 @@ export interface PlayerState {
    * "This turn" state, cleared by `runEnd` for BOTH players with the rest.
    */
   spellChoiceDrawnBattlefieldIds: string[];
+  /**
+   * Battlefields where THIS player has already had Star Spring's once-per-turn
+   * offer — "the FIRST time a player plays a non-token unit here each turn".
+   *
+   * A list of battlefield ids on the PLAYER, for both of the reasons
+   * `spellChoiceDrawnBattlefieldIds` above is one: the limit is per player ("a
+   * player ... THEY may move"), so a flag on the battlefield would let one player
+   * spend the other's allowance; and two Star Springs can be in play at once,
+   * since each player brings their own three battlefields.
+   *
+   * "This turn" state, cleared by `runEnd` for BOTH players with the rest.
+   */
+  starSpringUsedBattlefieldIds: string[];
   deck: CardInstance[];
   hand: CardInstance[];
   trash: CardInstance[];

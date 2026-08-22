@@ -55,6 +55,7 @@ function makePlayer(id: string, overrides: Partial<PlayerState> = {}): PlayerSta
     chosenChampionDefId: "TEST-CHAMPION",
     readyRunesAtEndOfTurn: 0,
     spellChoiceDrawnBattlefieldIds: [],
+    starSpringUsedBattlefieldIds: [],
     deck: [],
     hand: [],
     trash: [],

@@ -514,6 +514,10 @@ export function runEnd(state: GameState): GameState {
     // The Dreaming Tree's once-per-turn draw, cleared for both players — the
     // same sweep every other "this turn" field here goes through.
     spellChoiceDrawnBattlefieldIds: [] as string[],
+    // Star Spring's once-per-turn offer, cleared for both players beside it and
+    // for the same reason — the limit is per player, and both players' turns end
+    // in this same sweep.
+    starSpringUsedBattlefieldIds: [] as string[],
     unitsEnterReadyThisTurn: false,
     restrictedSpellEnergy: 0,
     restrictedUnitEnergy: 0,

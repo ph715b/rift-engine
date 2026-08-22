@@ -3,7 +3,7 @@ import type { RuneCard } from "../model/rune.js";
 import { applyContested } from "../engine/cleanup.js";
 import { dispatchOnPlayUnit } from "../engine/unit-triggers.js";
 import { holdEventTrigger, holdSelfTrigger } from "../engine/triggers.js";
-import { holdUnitsChosenBySpell } from "../engine/battlefield-abilities.js";
+import { holdBattlefieldTrigger, holdUnitsChosenBySpell } from "../engine/battlefield-abilities.js";
 import { consumeNextUnitEntersReady, gearEntersExhausted, unitEntersReady } from "../engine/deploy.js";
 import {
   freeGearPlayApplies,
@@ -797,6 +797,16 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
     // Contested now, Showdown staged by the following Cleanup — identical
     // treatment to a Move (rule 190.3.a's "Moves or otherwise becomes present"),
     // which is the point of routing both through applyContested.
+    // **The battlefield's own "when a unit is played here" moment** — Star Spring
+    // and Valley of Idols. Fired AFTER `dispatchOnPlayUnit` so the unit is
+    // already standing here and its own on-play trigger is already held: a
+    // battlefield asking about "another unit you control here" must see the board
+    // the player sees.
+    //
+    // Before `applyContested`, so the two land on the chain in the order they
+    // happened — the unit was played, and then (sometimes) the battlefield became
+    // Contested by its arrival.
+    next = holdBattlefieldTrigger(next, "unitPlayedHere", destinationBattlefieldId, action.playerIndex, deployedUnit.instanceId);
     return applyContested(next, destinationBattlefieldId, action.playerIndex);
   }
 
