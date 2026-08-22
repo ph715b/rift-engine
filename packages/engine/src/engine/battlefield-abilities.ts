@@ -98,6 +98,27 @@ export type BattlefieldMoment =
    * that asks about "a unit here" sees it standing there.
    */
   | "unitPlayedHere"
+  /**
+   * A SPELL was played, anywhere. `playerIndex` is whoever played it.
+   *
+   * **Not positional** — Abandoned Hall and Forgotten Library both watch every
+   * spell in the game and then act "here", so this fires for each battlefield
+   * carrying such a card rather than for the one a spell was aimed at. That makes
+   * it the second moment after `endOfTurn` that is raised for EVERY battlefield,
+   * and the reason both entries need an `applies`: without one they would place a
+   * Pending Item on every spell either player casts.
+   */
+  | "spellPlayed"
+  /**
+   * A unit standing HERE was returned to a player's hand. `playerIndex` is the
+   * unit's OWNER — the player whose hand it went to, which is who Ripper's Bay
+   * offers its channel to — and `unitInstanceId` is the unit that left.
+   *
+   * Fired from `effect-helpers.returnUnitToHand`, the single funnel every
+   * bounce goes through, and BEFORE the unit is removed: the battlefield it was
+   * standing at is the whole question, and a removed unit has no location.
+   */
+  | "unitReturnedToHandFrom"
   /** `playerIndex`'s turn is ending — the moment a DELAYED battlefield ability
    *  fires (Targon's Peak's "…at the end of this turn"). Fired by
    *  `turn-manager.runEnd` for every battlefield, so only an `applies` keeps it
@@ -211,6 +232,35 @@ const PROTECTIVE_SANDS_ENERGY = 1;
  *  damage, play a 1 [Might] Bird unit token with [Deflect]." */
 const TRAPPING_GROUNDS = "UNL-217";
 const TRAPPING_GROUNDS_EXCESS = 3;
+
+/** Abandoned Hall — "When a player plays a spell, they may give a unit they
+ *  control here +1 [Might] this turn." */
+const ABANDONED_HALL = "UNL-205";
+/** Ripper's Bay — "When a unit here is returned to a player's hand, that player
+ *  may pay [1 Energy] to channel 1 rune exhausted." */
+const RIPPERS_BAY = "UNL-214";
+const RIPPERS_BAY_ENERGY = 1;
+
+/**
+ * **UNL-211 Forgotten Library is deliberately NOT here yet**, and it is the one
+ * card in this wave that needed something the engine does not have.
+ *
+ * "While you control this battlefield, when you play a spell, IF YOU SPENT
+ * [4 Energy] OR MORE, [Predict]." Two blockers, either enough on its own:
+ *
+ *  - **Nothing records what a play COST.** `execute-play-card` pays and moves on;
+ *    there is no per-play "energy spent" on `PlayerState`, and it cannot be
+ *    re-derived at resolution because the response window this would open can
+ *    contain another play. 383 fixes the condition at the moment of the event, so
+ *    it has to be captured as the cost is paid.
+ *  - **`[Predict]` is private to `effects/chaos.ts`.** It is one ability printed
+ *    on five cards and its helper takes a decision `kind` so each keeps its own
+ *    prompt; reaching it from here means exporting it, which is a shared-file
+ *    change of its own.
+ *
+ * Left for its own change rather than half-built, and named here so the gap is a
+ * decision rather than an oversight. The coverage gate lists it as remaining.
+ */
 
 /** Star Spring — "The FIRST time a player plays a non-token unit here each turn,
  *  they may move another unit they control here to its base." */
@@ -480,6 +530,46 @@ export const BATTLEFIELD_TRIGGERS: Record<string, readonly BattlefieldTriggerDef
     },
   ],
 
+  [ABANDONED_HALL]: [
+    {
+      // "When a player plays a spell, they may give a unit they control HERE
+      // +1 [Might] this turn."
+      //
+      // "A player ... THEY" — either player's spell, and the unit is theirs. So
+      // this fires on the OPPONENT's spells too, for the opponent's benefit.
+      //
+      // `applies` asks whether that player has a unit here at all. Without it,
+      // every spell either player casts all game would place a Pending Item on
+      // this battlefield — the cost `endOfTurn`'s own note warns about, and the
+      // reason this moment is raised for every battlefield rather than one.
+      on: "spellPlayed",
+      applies: (state, event) => ownUnitsAt(state, event.playerIndex, event.battlefieldId).length > 0,
+      resolve: (state, event) =>
+        parkDecision(state, {
+          kind: `${ABANDONED_HALL}-pump`,
+          playerIndex: event.playerIndex,
+          battlefieldId: event.battlefieldId,
+        }),
+    },
+  ],
+  [RIPPERS_BAY]: [
+    {
+      // "When a unit here is returned to a player's hand, THAT PLAYER may pay
+      // [1 Energy] to channel 1 rune exhausted."
+      //
+      // "That player" is the unit's OWNER — whose hand it went to — which is what
+      // `unitReturnedToHandFrom` carries as `playerIndex`. So bouncing your own
+      // unit off this battlefield pays YOU, and bouncing the opponent's pays
+      // THEM: the card rewards the player who lost the body, not the one who
+      // caused it.
+      //
+      // The Energy is asked in `applies` (416.3).
+      on: "unitReturnedToHandFrom",
+      applies: (state, event) => payEnergyFromPool(state, event.playerIndex, RIPPERS_BAY_ENERGY) !== undefined,
+      resolve: (state, event) =>
+        parkDecision(state, { kind: `${RIPPERS_BAY}-channel`, playerIndex: event.playerIndex }),
+    },
+  ],
   [STAR_SPRING]: [
     {
       // "The FIRST time a player plays a NON-TOKEN unit here each turn, they may
@@ -1072,6 +1162,44 @@ export const battlefieldDecisions: Record<string, DecisionDefinition> = {
       // picking the wrong one would make this card quietly better than printed —
       // the same call Fight or Flight records.
       optionId === "decline" ? state : recallUnitToBase(state, optionId),
+  },
+  [`${ABANDONED_HALL}-pump`]: {
+    prompt: () => "Abandoned Hall: give a unit you control here +1 Might this turn?",
+    options: (state, d) => {
+      if (d.battlefieldId === undefined) return [];
+      const mine = ownUnitsAt(state, d.playerIndex, d.battlefieldId);
+      if (mine.length === 0) return [];
+      return [
+        { id: "decline", label: "Decline" },
+        ...mine.map((u) => ({ id: u.instanceId, label: `Give ${u.name} +1 Might`, instanceId: u.instanceId })),
+      ];
+    },
+    resolve: (state, d, optionId) =>
+      // `giveMightThisTurnToOwnUnit` rather than a raw field write — it is the
+      // shared helper the rest of this table uses, so Mel's additional -1 and
+      // every other modifier on a this-turn grant reach this card too.
+      optionId === "decline" ? state : giveMightThisTurnToOwnUnit(state, d.playerIndex, optionId, 1),
+  },
+  [`${RIPPERS_BAY}-channel`]: {
+    prompt: () => "Ripper's Bay: pay 1 Energy to channel 1 rune exhausted?",
+    options: (state, d) =>
+      payEnergyFromPool(state, d.playerIndex, RIPPERS_BAY_ENERGY) === undefined ||
+      state.players[d.playerIndex].runeDeck.length === 0
+        ? []
+        : [
+            { id: "pay", label: "Pay 1 Energy to channel 1 rune exhausted" },
+            { id: "decline", label: "Decline" },
+          ],
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline") return state;
+      // Pay first and re-check — the response window can have emptied the pool.
+      const paid = payEnergyFromPool(state, d.playerIndex, RIPPERS_BAY_ENERGY);
+      if (paid === undefined) return state;
+      // EXHAUSTED, which is the card. `channelRunesExhausted` is the shared
+      // helper Startipped Peak already uses, so the two cannot drift on what
+      // "channel exhausted" means.
+      return channelRunesExhausted(paid, d.playerIndex, 1);
+    },
   },
   [`${STAR_SPRING}-move`]: {
     prompt: () => "Star Spring: move another unit you control here to its base?",

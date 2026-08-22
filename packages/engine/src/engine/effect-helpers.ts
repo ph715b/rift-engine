@@ -2676,7 +2676,21 @@ export function returnUnitToHand(state: GameState, targetInstanceId: string): Ga
   const { unit, ownerIndex } = location;
 
   const returned: UnitInstance = { ...unit, damage: 0, mightThisTurn: 0, buffed: false, exhausted: false };
-  const removed = removeUnitAnywhere(state, targetInstanceId);
+  // Ripper's Bay — "when a unit HERE is returned to a player's hand". Raised
+  // BEFORE the removal, because the battlefield it was standing at is the whole
+  // question and a removed unit has no location. A unit bounced from a BASE
+  // raises nothing, which is the card's "here".
+  const announced =
+    location.zone === "base"
+      ? state
+      : holdBattlefieldTrigger(
+          state,
+          "unitReturnedToHandFrom",
+          state.battlefields[location.zone.battlefieldIndex]!.id,
+          ownerIndex,
+          targetInstanceId,
+        );
+  const removed = removeUnitAnywhere(announced, targetInstanceId);
   return updatePlayer(removed, ownerIndex, (p) => ({ ...p, hand: fileIntoNonBoardZone(p.hand, returned) }));
 }
 

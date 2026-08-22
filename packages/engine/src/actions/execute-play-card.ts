@@ -147,7 +147,22 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
   // `cardsPlayedThisTurn`, a counter that the response window this hold opens can
   // itself change — a [Reaction] cast in answer makes it 3, and a `resolve` that
   // re-checked would refuse a trigger that had already fired.
-  const withEvent = holdEventTrigger(played, {
+  // **Every battlefield's "when a player plays a spell" moment** — Abandoned Hall
+  // and Forgotten Library. Not positional: both cards watch every spell in the
+  // game and then act "here", so this is raised for each battlefield rather than
+  // for one a spell was aimed at. Their `applies` is what keeps that from placing
+  // a Pending Item on every spell either player casts.
+  //
+  // Raised for SPELLS only, and before the `cardPlayed` event below so the two
+  // land on the chain in the order they happened.
+  const withBattlefields =
+    action.card.kind === "Spell"
+      ? played.battlefields.reduce(
+          (next, bf) => holdBattlefieldTrigger(next, "spellPlayed", bf.id, action.playerIndex),
+          played,
+        )
+      : played;
+  const withEvent = holdEventTrigger(withBattlefields, {
     kind: "cardPlayed",
     casterIndex: action.playerIndex,
     playedKind: action.card.kind,
