@@ -1691,17 +1691,22 @@ export function loadRuneArt(): Partial<Record<Domain, string>> {
  * render as a blank fallback frame. Same presentation-only side-lookup
  * pattern as loadRuneArt above, and the same one CardLoader.java:677 uses for
  * exactly this card's tokens.
+ *
+ * **DERIVED from `loadTokenDefinitions()` rather than scanning the JSON a second
+ * time**, which is the fix for a reported bug: this used to carry its own scan
+ * with `if (!/^Recruit\b/.test(item.name)) continue;` in it, so `TOKEN-RECRUIT`
+ * was the ONLY key it could ever produce. Sprite and Gold are printed cards with
+ * real art in the same files, and both rendered on the board as blank frames.
+ *
+ * Two scans of one source, filtered differently, is the drift CLAUDE.md's "any
+ * list the engine merges from several sources" rule is about — the trigger census
+ * was wrong four times the same way. There is now one scan, and this is a
+ * projection of it.
  */
 export function loadTokenArt(): Partial<Record<string, string>> {
   const art: Partial<Record<string, string>> = {};
-  for (const raw of CARD_FILES) {
-    for (const item of extractCardItems(raw)) {
-      if (item.classification.supertype !== "Token") continue;
-      if (item.metadata.alternate_art) continue;
-      if (!/^Recruit\b/.test(item.name)) continue;
-      const imageUrl = item.media.image_url;
-      if (imageUrl && !art["TOKEN-RECRUIT"]) art["TOKEN-RECRUIT"] = imageUrl;
-    }
+  for (const def of loadTokenDefinitions()) {
+    if (def.imageUrl && !art[def.runtimeDefId]) art[def.runtimeDefId] = def.imageUrl;
   }
   return art;
 }
@@ -1763,7 +1768,16 @@ export function loadTokenDefinitions(): TokenDefinition[] {
       // the one cards create, and its tag is the first name. Splitting on "//"
       // rather than storing the whole string keeps the runtime defId readable
       // and matches how the cards refer to it ("a Gold gear token").
-      const face = item.name.split("//")[0]!.trim();
+      //
+      // **The trailing PRINT NUMBER is stripped, and that was a live defect.**
+      // OGN prints the Recruit three times as "Recruit (271) // Buff",
+      // "(272)", "(273)" — three arts for one token — so the face carried the
+      // number and this produced `TOKEN-RECRUIT (271)`, an id `createToken` can
+      // never stamp (`TOKEN-${spec.tag.toUpperCase()}` has no number in it). Four
+      // of the five printed tokens therefore mapped to nothing, and it went
+      // unnoticed because the ONE consumer that asserted on this field asks only
+      // about Gold, whose name has no number.
+      const face = item.name.split("//")[0]!.trim().replace(/\s*\(\d+\)\s*$/, "");
       defs.push({
         id: deriveId(item.riftbound_id),
         runtimeDefId: `TOKEN-${face.toUpperCase()}`,
