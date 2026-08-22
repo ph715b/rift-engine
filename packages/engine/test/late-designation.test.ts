@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { runCleanup } from "../src/engine/cleanup.js";
+import { clearContested, runCleanup } from "../src/engine/cleanup.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import type { BattlefieldState, GameState } from "../src/model/game-state.js";
 import type { UnitInstance } from "../src/model/card.js";
@@ -86,5 +86,51 @@ describe("a unit arriving mid-combat gains the designation at the next Cleanup",
     const after = runCleanup(reinforce(opened, makeUnit({ name: "Plain", might: 4 })));
 
     expect(chainNames(after)).toEqual([]);
+  });
+
+  it("attacks AGAIN in a SECOND combat at the same battlefield", () => {
+    // **The other half of "for the first time during a combat", and the direction
+    // that fails silently.** The record `designatedInstanceIds` makes that clause
+    // enforceable belongs to one combat, not to the battlefield — so
+    // `clearContested` empties it when a Showdown closes. If it did not, every
+    // unit still standing here would read as long-since-designated in the NEXT
+    // fight and its attack trigger would never fire again, for the rest of the
+    // game, with nothing on screen to say why.
+    //
+    // Written after a playtest report of a trigger not firing sent me looking at
+    // this record. That report turned out to be something else and this invariant
+    // was already correct — but it was correct and UNPINNED, resting on one line
+    // inside a function whose stated job is clearing Contested rather than
+    // clearing designations.
+    const anivia = realUnitInstance(ANIVIA_PRIMAL);
+    const first = resolveHeldTriggers(contestedState([anivia]));
+    expect((first.battlefields[0]!.units["p2"] ?? []).map((u) => u.damage), "she did not attack the first time").toEqual([3]);
+
+    // The combat closes the way combat.ts closes one, and a fresh one is staged
+    // by contesting the battlefield again.
+    const closed: GameState = {
+      ...clearContested(first, "bf1"),
+      turnState: "Neutral",
+      chainOpen: true,
+      showdownKind: null,
+      showdownBattlefieldId: null,
+    };
+    expect(
+      closed.battlefields[0]!.designatedInstanceIds ?? [],
+      "the closing combat left its designation record behind",
+    ).toEqual([]);
+
+    const restaged: GameState = {
+      ...closed,
+      battlefields: closed.battlefields.map((bf, i) => (i === 0 ? { ...bf, contestedByIndex: 0 as const } : bf)),
+    };
+    const second = resolveHeldTriggers(restaged);
+
+    // 3 from the first combat plus 3 from the second. A unit that stayed put is
+    // attacking for the first time in THIS combat, which is what the rule says.
+    expect(
+      (second.battlefields[0]!.units["p2"] ?? []).map((u) => u.damage),
+      "she never attacked again — the designation record outlived its combat",
+    ).toEqual([6]);
   });
 });
