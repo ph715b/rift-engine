@@ -742,8 +742,34 @@ function activationCostChoices(
  * The restriction is per target, so this filters each candidate list rather than
  * the finished combination.
  */
-function atHiddenBattlefield(state: GameState, unitInstanceId: string, fromHiddenBattlefieldId: string | undefined): boolean {
+function atHiddenBattlefield(
+  state: GameState,
+  unitInstanceId: string,
+  fromHiddenBattlefieldId: string | undefined,
+  /** The card being played, for 811.1.d.2's exemption. Optional so the call
+   *  sites that cannot be exempt (a battlefield choice, a gear) stay unchanged. */
+  cardDefId?: string,
+): boolean {
   if (fromHiddenBattlefieldId === undefined) return true;
+  // **811.1.d.2's own exception, and the rules work this card BY NAME.**
+  //
+  // The confinement is "those targets must be chosen from among options at that
+  // battlefield, UNLESS the ability explicitly restricts targeting in a way that
+  // makes this impossible", and the rulebook's worked example is Tideturner:
+  // "Because its play effect has a targeting restriction that can never be
+  // fulfilled by a unit at its battlefield, its target may be chosen freely from
+  // among the available options."
+  //
+  // Without this the two restrictions are mutually exclusive and cancel: his
+  // clause is "a unit you control at ANOTHER location", every candidate is
+  // filtered out, and the play is offered only as the decline. The trigger then
+  // fires and resolves to nothing, which from the seat is indistinguishable from
+  // not triggering — reported from play as exactly that: "tideturner when played
+  // from hidden is not triggering for some reason."
+  //
+  // Keyed off `targetMustBeElsewhere`, the table that already states the
+  // impossibility, rather than a second list of exempt cards.
+  if (cardDefId !== undefined && targetMustBeElsewhere(cardDefId)) return true;
   const bf = state.battlefields.find((b) => b.id === fromHiddenBattlefieldId);
   return Object.values(bf?.units ?? {}).some((list) => list.some((u) => u.instanceId === unitInstanceId));
 }
@@ -1337,7 +1363,7 @@ export function legalActions(state: GameState): PlayerAction[] {
         if (!unitSatisfiesEmpoweredOnly(state, target, targeting.empoweredOnly)) continue;
         if (!unitSatisfiesNarrowing(state, target, ownerIndexOf(state, target), targeting.narrowing)) continue;
         if (!unitSatisfiesAttackingOnly(state, target, targeting.attackingOnly)) continue;
-        if (!atHiddenBattlefield(state, target.instanceId, fromHiddenBattlefieldId)) continue;
+        if (!atHiddenBattlefield(state, target.instanceId, fromHiddenBattlefieldId, card.defId)) continue;
         effectVariants.push({ targetUnitInstanceId: target.instanceId });
       }
     } else if (targeting.kind === "battlefield") {

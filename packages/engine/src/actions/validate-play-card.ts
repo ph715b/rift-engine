@@ -20,6 +20,7 @@ import {
   unitSatisfiesNarrowing,
   unitWithinMaxMight,
 } from "../engine/target-lookup.js";
+import { targetMustBeElsewhere } from "../engine/card-effects.js";
 import type { TargetScope, UnitSlotRole } from "../engine/card-effects.js";
 import type { UnitInstance } from "../model/card.js";
 import { computeEffectiveCost, matchesPowerDomain, restrictedPowerFor } from "../engine/rune-payment.js";
@@ -114,11 +115,28 @@ function hiddenPlayRejection(state: GameState, action: PlayCardAction): string |
   if (!hiddenCardIsPlayable(state, hidden, action.fromHiddenBattlefieldId!)) {
     return `${action.card.name} cannot be played from hidden here — it was hidden this turn, or an enemy Noxus Saboteur is at that battlefield`;
   }
-  // Every target must come from that battlefield, PER TARGET (811). Checked
-  // against the same predicate legal-actions enumerates from, so a from-hidden
-  // play can never be offered and then refused.
+  // Every target must come from that battlefield, PER TARGET (811.1.d.2).
+  //
+  // **Except where the card's own targeting makes that impossible**, which is
+  // that rule's written exception: "unless the ability explicitly restricts
+  // targeting in a way that makes this impossible". The rulebook works
+  // Tideturner by name — "its target may be chosen freely from among the
+  // available options" — because "a unit you control at ANOTHER location" and
+  // "at this battlefield" cancel each other out.
+  //
+  // **The comment this replaces claimed the two sides used the same predicate
+  // and they never did**: `legal-actions` enumerates through
+  // `atHiddenBattlefield` and this loop calls `isAtBattlefield`, two functions
+  // that happened to agree. Exempting one side and not the other turned
+  // Tideturner from "silently does nothing" into an offered-then-refused —
+  // the crash-mid-game shape this codebase has produced six times — which is how
+  // the drift surfaced at all. They are still two functions; what binds them is
+  // that both now ask `targetMustBeElsewhere`, and the enumerate-then-validate
+  // test in `tideturner-from-hidden.test.ts` fails if either stops.
+  const targetsMayRoam = targetMustBeElsewhere(action.card.defId);
   for (const targetId of [action.targetUnitInstanceId, action.secondTargetUnitInstanceId, ...(action.targetUnitInstanceIds ?? [])]) {
     if (targetId === undefined) continue;
+    if (targetsMayRoam) continue;
     if (!isAtBattlefield(state, targetId, action.fromHiddenBattlefieldId!)) {
       return `${action.card.name} was played from hidden, so its targets must be at that battlefield`;
     }

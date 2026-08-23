@@ -44,14 +44,24 @@ const SWITCHEROO = "SFD-145";
 const LONG_SWORD = "SFD-022";
 
 /** Two units at bf1, one of them optionally wearing gear or carrying a buff. */
-function board(opts: { firstMight: number; secondMight: number; equipFirst?: boolean; buffFirst?: boolean }): GameState {
+function board(opts: {
+  firstMight: number;
+  secondMight: number;
+  equipFirst?: boolean;
+  equipSecond?: boolean;
+  buffFirst?: boolean;
+}): GameState {
   const state = makeState({ phase: "Action", activePlayerIndex: 0 });
   const mine = makeUnit({ instanceId: "mine", name: "Mine", might: opts.firstMight, ...(opts.buffFirst ? { buffed: true } : {}) });
   const theirs = makeUnit({ instanceId: "theirs", name: "Theirs", might: opts.secondMight });
   state.battlefields[0] = { ...state.battlefields[0]!, units: { p1: [mine], p2: [theirs] } };
   if (opts.equipFirst) {
-    const gear = { ...realGearInstance(LONG_SWORD), attachedToInstanceId: "mine" };
-    state.players[0]!.activeGear = [gear];
+    state.players[0]!.activeGear = [{ ...realGearInstance(LONG_SWORD), attachedToInstanceId: "mine" }];
+  }
+  if (opts.equipSecond) {
+    // The OPPONENT's gear, on the OPPONENT's unit — the orientation the report
+    // actually describes.
+    state.players[1]!.activeGear = [{ ...realGearInstance(LONG_SWORD), attachedToInstanceId: "theirs" }];
   }
   return state;
 }
@@ -96,6 +106,23 @@ describe("the reported game: equipment counts", () => {
     expect(nonCombat(after, "theirs", 1), "the plain unit did not take the equipped unit's CURRENT Might").toBe(
       mineBefore,
     );
+  });
+
+  it("counts equipment on the OPPONENT's unit — the reported orientation", () => {
+    // **The report puts the gear on the ENEMY unit**: "I switcheroo'd my unit and
+    // an opponent's base 2-Might unit, but it was ten Might because of
+    // equipment." The tests above equip the caster's own, so a fix that read
+    // `effectiveMight` for one side and a printed figure for the other would
+    // pass them and still be wrong in the reported game. `swappableMight` asks
+    // each unit's OWN owner, and this is what pins that.
+    const state = board({ firstMight: 6, secondMight: 2, equipSecond: true });
+    const mineBefore = nonCombat(state, "mine", 0); // 6
+    const theirsBefore = nonCombat(state, "theirs", 1); // 2 printed + 2 gear = 4
+    expect(theirsBefore, "the enemy gear granted nothing, so this measures nothing").toBeGreaterThan(2);
+
+    const after = swap(state);
+    expect(nonCombat(after, "mine", 0), "my unit did not take the enemy's CURRENT Might").toBe(theirsBefore);
+    expect(nonCombat(after, "theirs", 1), "the enemy unit did not take mine").toBe(mineBefore);
   });
 
   it("a BUFF counts too — the same rule, a different source", () => {
