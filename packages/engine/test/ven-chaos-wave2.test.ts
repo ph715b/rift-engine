@@ -104,9 +104,13 @@ const conquered = (state: GameState, conquerorIndex: 0 | 1 = 0, battlefieldId = 
   resolveHeldTriggers(runCleanup(holdEventTrigger(state, { kind: "battlefieldConquered", conquerorIndex, battlefieldId })));
 
 describe("Stargazer (VEN-098): [Flow] spells from your trash cost 2 less, min 1", () => {
-  function board(withStargazer: boolean): GameState {
+  function board(withStargazer: boolean, copies = 1): GameState {
     const state = makeState();
-    if (withStargazer) state.battlefields[0]!.units = { p1: [realUnitInstance(STARGAZER)] };
+    if (withStargazer) {
+      state.battlefields[0]!.units = {
+        p1: Array.from({ length: copies }, () => realUnitInstance(STARGAZER)),
+      };
+    }
     return state;
   }
 
@@ -124,6 +128,39 @@ describe("Stargazer (VEN-098): [Flow] spells from your trash cost 2 less, min 1"
     // minimum of [1]", so a 2-Energy Flow cost becomes 1 and not 0.
     expect(flowPrice(board(true), 2), "it used the usual 0 floor").toBe(1);
     expect(flowPrice(board(true), 1), "the floor raised a price below it").toBe(1);
+  });
+
+  it("TWO Stargazers each take 2 off — 356.4.e", () => {
+    // **This was recorded as "two Stargazers do not stack" and Unverified until
+    // 2026-08-23, and the rules settle it the other way.**
+    //
+    // **356.4.e**: "If a discount applies a minimum cost, that minimum applies
+    // only to that discount." Its worked example applies two discounts in
+    // sequence with each minimum bounding only its own, so two copies take 2 off
+    // each rather than 2 off between them.
+    //
+    // The tell was internal, not textual: **Herald of Scales (OGN-140) prints the
+    // IDENTICAL clause** — "cost reduced by [2], to a minimum of [1]" — and has
+    // always counted its copies, while this one asked `.some()`. Two cards, one
+    // wording, opposite implementations, each filed under its own Unverified row
+    // so nobody put them side by side.
+    expect(flowPrice(board(true, 2), 8), "the second Stargazer took nothing off").toBe(4);
+    expect(flowPrice(board(true, 3), 8), "the third Stargazer took nothing off").toBe(2);
+  });
+
+  it("...and each copy's floor bounds only its own discount", () => {
+    // The half 356.4.e is actually about. Applied in sequence from 4: the first
+    // copy gives max(1, 2) = 2, the second max(1, 0) = 1. Not max(1, 4 - 4).
+    // Both routes land on 1 here, which is why the assertion above uses 8 — a
+    // cost high enough that stacking is observable at all. Kept because it is the
+    // rule being relied on.
+    expect(flowPrice(board(true, 2), 4), "two copies did not reach the floor").toBe(1);
+    expect(flowPrice(board(true, 2), 3), "the floor was breached").toBe(1);
+  });
+
+  it("ONE Stargazer still takes exactly 2 — the control", () => {
+    // Counting must not have turned into scaling: a single copy is unchanged.
+    expect(flowPrice(board(true, 1), 8), "one copy stopped taking exactly 2").toBe(6);
   });
 
   it("does NOT apply to the same spell played from HAND", () => {

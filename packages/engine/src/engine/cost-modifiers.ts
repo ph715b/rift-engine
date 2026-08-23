@@ -161,13 +161,30 @@ const STARGAZER = "VEN-098";
 const STARGAZER_DISCOUNT = 2;
 const STARGAZER_FLOOR = 1;
 
-/** Does `playerIndex` control a Stargazer anywhere on the board? */
-function controlsStargazer(state: GameState, playerIndex: 0 | 1): boolean {
+/**
+ * How many Stargazers `playerIndex` controls anywhere on the board.
+ *
+ * **A COUNT, not a boolean, as of 2026-08-23 — each copy is its own discount.**
+ *
+ * **356.4.e**: "If a discount applies a minimum cost, that minimum applies only
+ * to that discount." Its worked example applies two discounts in sequence with
+ * each minimum bounding only its own, so two Stargazers take 2 off each, not 2
+ * off between them.
+ *
+ * This used to be `.some()` and the card was recorded Unverified as "two
+ * Stargazers do not stack". **Herald of Scales (OGN-140) prints the IDENTICAL
+ * clause** — "cost reduced by [2], to a minimum of [1]" — and has always
+ * counted its copies. Two cards, one wording, opposite implementations, each
+ * filed under its own Unverified row so nobody put them side by side. Now they
+ * agree, and 356.4.e says which way.
+ */
+function stargazerCount(state: GameState, playerIndex: 0 | 1): number {
   const owner = state.players[playerIndex];
-  return (
-    owner.baseUnits.some((u) => u.defId === STARGAZER) ||
-    state.battlefields.some((bf) => (bf.units[owner.id] ?? []).some((u) => u.defId === STARGAZER))
+  const atBattlefields = state.battlefields.reduce(
+    (sum, bf) => sum + (bf.units[owner.id] ?? []).filter((u) => u.defId === STARGAZER).length,
+    0,
   );
+  return owner.baseUnits.filter((u) => u.defId === STARGAZER).length + atBattlefields;
 }
 
 /**
@@ -1227,9 +1244,14 @@ export function modifiedEnergyCost(
     cardKind === "Spell" &&
     defId !== undefined &&
     cardHasFlowCost(defId) &&
-    controlsStargazer(state, playerIndex)
+    stargazerCount(state, playerIndex) > 0
   ) {
-    cost = Math.max(STARGAZER_FLOOR, cost - STARGAZER_DISCOUNT);
+    // Applied ONCE PER COPY, each bounded by its own floor — 356.4.e's "that
+    // minimum applies only to that discount", worked in sequence exactly as its
+    // Eager Apprentice example does.
+    for (let i = 0; i < stargazerCount(state, playerIndex); i += 1) {
+      cost = Math.max(STARGAZER_FLOOR, cost - STARGAZER_DISCOUNT);
+    }
   }
 
   // Shadowblade Lurker's self-scaling discount. Floored at 0 by the `Math.max`
