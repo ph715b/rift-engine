@@ -1521,7 +1521,12 @@ export function legalActions(state: GameState): PlayerAction[] {
       if (targeting.min <= 1) {
         for (const only of firstSlot) effectVariants.push({ targetUnitInstanceId: only.instanceId });
       }
-      for (const [i, first] of firstSlot.entries()) {
+      // 355.8 with 824.1.d — a `[Level N]` second clause that is Inactive offers
+      // no target at all. Hoisted out of the loop because it is a fact about the
+      // CASTER, not about any pair.
+      const secondSlotActive =
+        targeting.secondSlotLevel === undefined || state.players[playerIndex].xp >= targeting.secondSlotLevel;
+      for (const [i, first] of secondSlotActive ? firstSlot.entries() : []) {
         for (const [j, second] of secondSlot.entries()) {
           if (first.instanceId === second.instanceId) continue;
           if (symmetric && j < i) continue; // keep one ordering of each pair

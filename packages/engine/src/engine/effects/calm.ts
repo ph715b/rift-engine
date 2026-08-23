@@ -942,14 +942,35 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // because moving a unit and then stunning that same unit is a real line the
     // card's wording permits.
     //
-    // # `min: 1`, and what that costs
+    // # `min: 1`, and the `[Level 6]` slot
     //
-    // The stun exists only at `[Level 6]`, and a `TargetingSpec` is static — it
-    // cannot ask the board. So the second slot is OPTIONAL and the resolver gates
-    // it on XP. Below 6 XP a caster may still NAME a second target and it does
-    // nothing: an over-OFFER, never an over-reach, which is the direction this
-    // engine errs in and is recorded as a divergence.
-    targeting: { kind: "unitSlots", slots: ["enemy", "enemy"], min: 1, scope: "anywhere", asymmetricSlots: true },
+    // The stun exists only at `[Level 6]`, so the second slot is OPTIONAL —
+    // `min: 1` — and `secondSlotLevel` gates whether it is OFFERED at all.
+    //
+    // **That gate was called impossible until 2026-08-23**, on the reasoning that
+    // "a `TargetingSpec` is static — it cannot ask the board", so the resolver
+    // gated it and a caster below 6 XP could name a stun target and watch it do
+    // nothing. The spec OBJECT is static; the walk that reads it is not, and the
+    // very loop that emits these pairs already asks the board twice
+    // (`sameBattlefield`, `secondMightBelowFirst`). 355.8 declares targets at
+    // finalization and 824.1.d makes the clause Inactive below the threshold, so
+    // an Inactive clause offering a target was the divergence.
+    //
+    // **The resolver STILL checks, and that is not redundant.** This is a SPELL:
+    // its clause resolves from the chain as part of its own text, so 727.1.c.1
+    // (which put UNL-040 Wuju Apprentice's gate at trigger time and forbade
+    // re-asking) does not reach it. 824.1.d applies whenever the clause is read,
+    // so XP spent between finalization and resolution legitimately turns the stun
+    // off. Two checks, two rules — and the two cards are the reason to write that
+    // down rather than "unify them".
+    targeting: {
+      kind: "unitSlots",
+      slots: ["enemy", "enemy"],
+      min: 1,
+      scope: "anywhere",
+      asymmetricSlots: true,
+      secondSlotLevel: SKYWARD_STRIKE_LEVEL,
+    },
     resolve: (state, ctx, event) => {
       const moved = event.targetUnitInstanceId;
       const moveDone = moved ? forceMoveToDestination(state, moved, event, ctx.casterIndex) : state;

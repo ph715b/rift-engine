@@ -125,13 +125,27 @@ describe("the [Level 6] stun", () => {
   });
 
   it("...and does NOT at 5 — the boundary", () => {
+    // **This test's PREMISE changed on 2026-08-23, and it got stronger.** It used
+    // to build the two-target action below the level, submit it, and assert the
+    // stun did not fire — which was only expressible because the pair was
+    // ENUMERABLE at any XP. It is not any more: 355.8 declares targets at
+    // finalization and 824.1.d makes the clause Inactive below the threshold, so
+    // the slot is no longer offered (`secondSlotLevel`). See the pin below.
+    //
+    // Both halves of the original intent survive, and neither is weakened: the
+    // stun does not happen, and the move still does — which is what makes this a
+    // gate on the second CLAUSE rather than on the card.
     const { state } = board(LEVEL - 1);
-    const action = playsOf(state).find((p) => p.targetUnitInstanceId === "a" && p.secondTargetUnitInstanceId === "b")!;
-    const after = play(state, action);
-    expect(unitOf(after, "b").stunned, "the stun fired below the level").toBe(false);
-    // The move half still happens, which is what makes this a level gate on the
-    // second clause rather than on the card.
-    expect(whereIs(after, "a"), "the move stopped happening too").not.toBe("bf1");
+    expect(
+      playsOf(state).filter((p) => p.secondTargetUnitInstanceId !== undefined),
+      "a stun target was offered below the level",
+    ).toHaveLength(0);
+
+    const moveOnly = playsOf(state).find((p) => p.targetUnitInstanceId === "a" && p.destinationBattlefieldId === "bf2");
+    expect(moveOnly, "the move-only play disappeared below the level").toBeDefined();
+    const after = play(state, moveOnly!);
+    expect(unitOf(after, "b").stunned, "something stunned the second unit below the level").toBe(false);
+    expect(whereIs(after, "a"), "the move stopped happening too").toBe("bf2");
   });
 
   it("does not stun the unit it MOVED — the slots are distinct", () => {
@@ -141,16 +155,33 @@ describe("the [Level 6] stun", () => {
     expect(unitOf(after, "a").stunned, "it stunned the moved unit instead of the named one").toBe(false);
   });
 
-  it("PINNED: below 6 XP the second target is still OFFERED, and does nothing", () => {
-    // The recorded divergence. A `TargetingSpec` is static and cannot ask the
-    // board, so the stun slot is offered at any XP and the resolver gates it.
-    // An over-OFFER, never an over-reach — delete this pin if the spec ever
-    // learns to ask.
+  it("below 6 XP the second target is NOT offered", () => {
+    // **This was a premise pin, and it fired on 2026-08-23 exactly as intended.**
+    //
+    // It used to assert the opposite — that the stun slot IS offered below the
+    // level and does nothing — and its comment read: "A `TargetingSpec` is static
+    // and cannot ask the board, so the stun slot is offered at any XP and the
+    // resolver gates it. An over-OFFER, never an over-reach — delete this pin if
+    // the spec ever learns to ask."
+    //
+    // **It was right about the blocker and wrong that it was unfixable**, which
+    // is this repo's most common refusal shape. The spec OBJECT is static; the
+    // walk that reads it is not, and the very loop emitting these pairs already
+    // asks the board twice (`sameBattlefield`, `secondMightBelowFirst`).
+    // `secondSlotLevel` is the field, asked in `legal-actions` AND in
+    // `validate-play-card` so the two cannot drift.
+    //
+    // Kept pointed the other way rather than deleted: "a slot is not offered" is
+    // a NEGATIVE, and a slot that silently starts being offered again looks like
+    // nothing at all from the outside.
     const { state } = board(0);
     expect(
       shapes(state).some((s) => s.startsWith("a/b")),
-      "the second slot is no longer offered below the level — retire this pin",
-    ).toBe(true);
+      "the [Level 6] stun slot is being offered below the level again",
+    ).toBe(false);
+    // Positive control on the same fixture, so this cannot pass by the card
+    // becoming unplayable.
+    expect(shapes(state).length, "Skyward Strike offers nothing at all below the level").toBeGreaterThan(0);
   });
 });
 

@@ -415,6 +415,18 @@ function targetingRejection(
     if (filled.length === 2 && filled[0] === filled[1]) {
       return `${cardName} requires two different units`;
     }
+    // 355.8 with 824.1.d — a [Level N] second clause that is Inactive offers no
+    // target, so naming one is not a legal choice. Asked here as well as in
+    // legal-actions: the enumerator alone would leave this walk accepting a pair
+    // the board never offered, which is the same drift as an offered-then-refused
+    // wearing the other face.
+    if (
+      targeting.secondSlotLevel !== undefined &&
+      choices.secondTargetUnitInstanceId !== undefined &&
+      state.players[playerIndex].xp < targeting.secondSlotLevel
+    ) {
+      return `${cardName}'s second target needs ${targeting.secondSlotLevel} XP`;
+    }
 
     const roleHolds = (ownerIndex: 0 | 1, role: UnitSlotRole) =>
       role === "any" ? true : role === "friendly" ? ownerIndex === playerIndex : ownerIndex !== playerIndex;

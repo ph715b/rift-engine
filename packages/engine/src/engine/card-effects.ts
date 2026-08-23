@@ -346,6 +346,31 @@ export type TargetingSpec =
        * already puts on every variant of a moving card.
        */
       secondAtDestination?: true;
+      /**
+       * The SECOND slot exists only while its controller has this much XP —
+       * Skyward Strike's "[Level 6][>] [Stun] an enemy unit", a second clause
+       * gated by a Dependent Keyword.
+       *
+       * **355.8** declares targets at finalization and **824.1.d** makes the
+       * clause Inactive below the threshold, so an Inactive clause must not be
+       * OFFERING a target. Without this the caster could name a stun target below
+       * the level and watch it do nothing — an over-offer, never an over-reach,
+       * but indistinguishable from a broken card from the seat.
+       *
+       * A board question on a spec, exactly like `sameBattlefield` and
+       * `secondMightBelowFirst` beside it: the spec OBJECT is static, the walk
+       * that reads it is not. That distinction is why this card's entry called
+       * the fix impossible for three waves.
+       *
+       * Asked in `legal-actions` AND in `validate-play-card`, because either one
+       * alone is a drift — the enumerator alone leaves the validator accepting a
+       * pair the board never offered, and the validator alone is an
+       * offered-then-refused.
+       *
+       * Only the SECOND slot: the first is the card's unconditional clause and is
+       * always available, so this must never make the card unplayable.
+       */
+      secondSlotLevel?: number;
     }
   /**
    * "A unit at a battlefield **or a gear**" — Fading Memories. One choice over
