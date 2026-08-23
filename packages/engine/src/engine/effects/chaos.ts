@@ -49,7 +49,7 @@ import {
   takeOneFromTopAndRecycleRest,
   takeControlOfUnit,
 } from "../effect-helpers.js";
-import { eligibleTargets, findUnitAnywhere, unitWithinMaxMight } from "../target-lookup.js";
+import { eligibleTargets, findUnitAnywhere, ownerIndexOf, unitWithinMaxMight, type UnitZone } from "../target-lookup.js";
 import { effectiveTagsOf } from "../equipment.js";
 import { findUnitOnBattlefield } from "../target-lookup.js";
 import { empowerPermanent } from "../effect-helpers.js";
@@ -703,19 +703,39 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // symmetric pruning is right and `asymmetricSlots` would only double the
     // AI's search for one board.
     //
-    // **WHICH Might is swapped is a rules call this file makes explicitly.** The
-    // swap is expressed as two opposite `mightThisTurn` deltas, computed from
-    // printed Might PLUS the accumulated this-turn modifier — NOT from
-    // `effectiveMight`. That is `giveMightThisTurn`'s own floor convention,
-    // written down there for this exact question: "Buffs and continuous auras are
-    // deliberately NOT counted: they can appear and vanish after this resolves."
-    // Baking an aura or a combat-only [Shield] into a delta that survives to the
-    // end of the turn would keep paying out long after its source stopped
-    // applying, which is a worse answer than under-counting it. So a buffed unit
-    // keeps its own buff across the swap and only the base+this-turn figures
-    // trade places. **Flagged as unverified** — **432.1**'s worked example reads
-    // "current Might" for a spell that references Might, which would argue the
-    // other way.
+    // **WHICH Might is swapped is a rules call, and it was the WRONG one until
+    // 2026-08-23.** It used to swap printed Might plus the this-turn modifier and
+    // deliberately not `effectiveMight`, on the reasoning that baking an aura or
+    // a combat-only [Shield] into a delta surviving to end of turn "keeps paying
+    // out long after its source stopped applying, which is a worse answer than
+    // under-counting it". That entry flagged itself unverified and named the rule
+    // that contradicts it; nobody read the rule.
+    //
+    // **432.1's worked example settles it, and it settles it the other way — it
+    // is the exact scenario the old note called the worse error, decided in
+    // favour of current Might:**
+    //
+    //   "A unit with 3 base Might and Shield 2 is in combat as a Defender. Since
+    //   Shield applies, its current Might is 5. A player chooses it as the target
+    //   for Last Stand… 'Double a friendly unit's Might this turn.' Its current
+    //   Might is 5, so it gets +5 Might this turn… After combat, Shield no longer
+    //   applies, but the +5 Might from Last Stand does, so the unit's Might is 8."
+    //
+    // So a spell that references Might reads CURRENT Might (143.2), a temporary
+    // source counts while it applies, and the rules explicitly accept the
+    // resulting this-turn delta outliving that source. The old reasoning was a
+    // design preference asserted against a rule that had already answered.
+    //
+    // Reported from play: "using Switcheroo on a unit with a bunch of equipment
+    // attached swapped the original Might instead of the Might after equipment.
+    // I switcheroo'd my unit and an opponent's base 2-Might unit, but it was ten
+    // Might because of equipment." Equipment is a plainer part of current Might
+    // than Shield is, so it was wrong under the old reading twice over.
+    //
+    // Non-combat context, the reading every Might threshold in this pool takes —
+    // `[Assault]`/`[Shield]` do not count here, which is Wind and Ghosts' note
+    // above. The Shield in 432.1's example counts only because that unit is
+    // mid-combat; the equipment in the report counts always.
     targeting: { kind: "unitSlots", slots: ["any", "any"], min: 2, sameBattlefield: true },
     resolve: (state, _ctx, event) => {
       const { targetUnitInstanceId: firstId, secondTargetUnitInstanceId: secondId } = event;
@@ -725,7 +745,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
       // 359.3: a target that has left play makes the check return nothing rather
       // than making the spell fizzle loudly.
       if (!first || !second) return state;
-      const delta = swappableMight(second.unit) - swappableMight(first.unit);
+      const delta = swappableMight(state, second) - swappableMight(state, first);
       if (delta === 0) return state; // equal Might: a swap nothing can observe
       // Applied to the first, then the second, reading `delta` once — the second
       // call must not re-derive from a board the first has already changed.
@@ -1201,14 +1221,25 @@ export const cardEffects: Record<string, EffectDefinition> = {
 };
 
 /**
- * The Might figure Switcheroo trades between two units: printed plus the
- * accumulated this-turn modifier, and deliberately not `effectiveMight`.
+ * The Might figure Switcheroo trades between two units: CURRENT Might (143.2),
+ * which is what a spell referencing Might reads — equipment, auras, buffs and
+ * this-turn pumps included.
  *
- * Named rather than inlined because it IS the card's rules call — see SFD-145's
- * entry for why a delta that outlives its source is the worse error.
+ * Named rather than inlined because it IS the card's rules call. See SFD-145's
+ * entry for 432.1's worked example, which decides it and which the previous
+ * version of this comment cited while doing the opposite.
+ *
+ * Takes the LOCATION rather than the bare unit, because a positional aura is
+ * part of current Might and `effectiveMight` needs to know where the unit
+ * stands. That is also why this reads at RESOLUTION: an aura arriving in the
+ * response window an `[Action]` opens is part of the figure being swapped.
  */
-function swappableMight(unit: UnitInstance): number {
-  return unit.might + unit.mightThisTurn;
+function swappableMight(state: GameState, found: { unit: UnitInstance; zone: UnitZone }): number {
+  const battlefieldId = found.zone === "base" ? undefined : state.battlefields[found.zone.battlefieldIndex]?.id;
+  return effectiveMight(state, found.unit, ownerIndexOf(state, found.unit), {
+    isCombat: false,
+    ...(battlefieldId !== undefined ? { battlefieldId } : {}),
+  });
 }
 
 /**

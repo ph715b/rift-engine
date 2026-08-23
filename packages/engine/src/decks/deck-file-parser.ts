@@ -1,4 +1,4 @@
-import { LEGACY_BATTLEFIELDS, type DeckList } from "./deck-list.js";
+import { LEGACY_BATTLEFIELDS, SIDEBOARD_SIZE, type DeckList } from "./deck-list.js";
 
 /**
  * Parses the `.deck` file format written/read by CustomDeckRegistry
@@ -46,7 +46,10 @@ export function parseDeckFile(contents: string): DeckList | null {
   if (battlefields.length === 0) battlefields = LEGACY_BATTLEFIELDS;
   else if (battlefields.length !== 3) return null;
 
-  if (sideboardCardIds.length !== 0 && sideboardCardIds.length !== 8) return null;
+  // Reads SIDEBOARD_SIZE rather than a literal: this line said 8 while the
+  // constant said 8 too, so the drift was invisible until the size changed.
+  // A CAP rather than an exact count — see the constant's own note.
+  if (sideboardCardIds.length > SIDEBOARD_SIZE) return null;
 
   return {
     name,

@@ -67,6 +67,7 @@ import { targetingForPlay } from "../targeting-for-play.js";
 import { autoPayFill } from "../auto-payment.js";
 import { submittedPlay } from "../submitted-play.js";
 import { cardHasDestination } from "../card-destination.js";
+import { minimumTargetsFor } from "../target-optionality.js";
 import {
   matchesPendingChoices,
   matchesPendingCostFilter,
@@ -1710,11 +1711,16 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
    *  which is what makes stopping early legal at all. */
   function pendingMinTargets(): number {
     if (!pendingPlay) return 0;
-    const targeting = targetingForPlay(pendingPlay.card, pendingPlay.modeId);
-    if (targeting.kind === "unitSlots" || targeting.kind === "unitList") return targeting.min;
-    // Riposte's unit is mandatory (355.8 makes it uncastable without one), so it
-    // counts here exactly as a plain single-target card's does.
-    return targeting.kind === "unit" || targeting.kind === "chainSpellAndUnit" ? 1 : 0;
+    // **The rule lives in `target-optionality.ts`, deliberately.** This used to
+    // return a flat 1 for every `unit`-kind card, which made "you MAY choose"
+    // uncastable through the board: `canFinishTargeting` compares the chosen
+    // count against this minimum, so 1-with-nothing-chosen hides the "Choose no
+    // targets" button and leaves the player only Pass, Cancel and Hide.
+    // Reported from play against Tideturner.
+    //
+    // Moved out rather than fixed in place so it can be tested without driving
+    // the DOM — the same move `cardHasDestination` made after the Charm report.
+    return minimumTargetsFor(targetingForPlay(pendingPlay.card, pendingPlay.modeId), pendingCandidates());
   }
 
   /** Can the player stop picking targets right now — i.e. has an "up to N"

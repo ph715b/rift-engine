@@ -577,6 +577,31 @@ export function runEnd(state: GameState): GameState {
     // Annotated because this object is cast to a PlayerState tuple below, and a
     // bare `[]` infers `never[]`, which does not overlap `string[]`.
     conqueredBattlefieldsThisTurn: [] as string[],
+    // **470 is once per battlefield per TURN, and a turn ending lifts it for
+    // BOTH players.** This used to be cleared only in `runAwaken`, and only for
+    // the ACTIVE player — so a battlefield I scored on my turn stayed flagged for
+    // me through my opponent's whole turn, and anything that handed me control
+    // during it conquered without scoring. Reported from play as "opponent used
+    // Charm to bring my Kai'Sa to a battlefield on their turn; I got the draw
+    // from Kai'Sa but did not score a point".
+    //
+    // That report named the bug precisely by being self-inconsistent: Kai'Sa -
+    // Survivor prints "when I conquer, draw 1", so the trigger firing means
+    // `recordConquest` ran, and a conquest that fires triggers and pays nothing
+    // is its `alreadyScored` branch — reached by a player who had scored nothing
+    // this turn.
+    //
+    // 469.1 ("a player gains Control of a Battlefield they did not yet Score
+    // this turn") and 470 ("only Score, from either method, once per Battlefield
+    // per turn") both say TURN, not "your turn". Scoring on the opponent's turn
+    // is not an edge case — it is how a defender is paid for winning a Showdown
+    // they did not start.
+    //
+    // Here rather than in `runAwaken` because this is where every other per-turn
+    // tally resets, for both players at once, which is what "per turn" means.
+    // `conqueredBattlefieldsThisTurn` directly above is its sibling and was
+    // always reset correctly; the two had simply drifted apart.
+    scoredBattlefieldsThisTurn: [] as string[],
     unitsLostThisTurn: 0,
     // Raging Firebrand's unspent charge and Unyielding Spirit's prevention are
     // both "this turn" and end with it, exactly like the fields above.

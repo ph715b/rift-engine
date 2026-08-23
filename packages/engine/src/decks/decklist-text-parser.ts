@@ -164,7 +164,10 @@ export function parseDecklistText(text: string, registry: CardRegistry): Decklis
     }
     for (let i = 0; i < qty; i++) sideboardExpanded.push(def.id);
   }
-  const sideboardCardIds = sideboardComplete && sideboardExpanded.length === SIDEBOARD_SIZE ? sideboardExpanded : [];
+  // `<=` rather than `===`: a community export listing eight is a legal deck
+  // under a ten-card cap, and dropping its sideboard on the floor silently is
+  // how an imported list quietly loses cards.
+  const sideboardCardIds = sideboardComplete && sideboardExpanded.length <= SIDEBOARD_SIZE ? sideboardExpanded : [];
 
   const orderedDomains = sortByDomainOrdinal(legendDef.domains);
   let runeDomainACount = 0;

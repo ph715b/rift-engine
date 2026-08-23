@@ -206,8 +206,8 @@ export function validateDeckList(deckList: DeckList, registry: CardRegistry): Va
     return fail(`Deck must have exactly ${BATTLEFIELD_COUNT} battlefields, got ${deckList.battlefieldNames.length}`);
   }
 
-  if (deckList.sideboardCardIds.length !== 0 && deckList.sideboardCardIds.length !== SIDEBOARD_SIZE) {
-    return fail(`Sideboard must be empty or exactly ${SIDEBOARD_SIZE} cards, got ${deckList.sideboardCardIds.length}`);
+  if (deckList.sideboardCardIds.length > SIDEBOARD_SIZE) {
+    return fail(`Sideboard may hold at most ${SIDEBOARD_SIZE} cards, got ${deckList.sideboardCardIds.length}`);
   }
   for (const id of deckList.sideboardCardIds) {
     if (!registry.tryGet(id)) return fail(`Unknown card id in sideboard: ${id}`);

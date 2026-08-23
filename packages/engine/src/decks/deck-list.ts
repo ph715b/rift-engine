@@ -31,5 +31,25 @@ export const LEGACY_BATTLEFIELDS = ["Zaun Warrens", "Targon's Peak", "Reaver's R
 export const DECK_SIZE = 40;
 export const MAX_COPIES = 3;
 export const BATTLEFIELD_COUNT = 3;
-export const SIDEBOARD_SIZE = 8;
+/**
+ * The MAXIMUM sideboard, ten cards as of 2026-08-23 (was eight).
+ *
+ * **A cap, not an exact size, and that is a deliberate call.** Every check used
+ * to read "empty or exactly SIDEBOARD_SIZE", so raising the number would have
+ * invalidated every deck built under the old one — six of the eight decks in the
+ * app's own store, including archived Regional Qualifier lists that were legal
+ * when they were built. A format's card limit going up does not retroactively
+ * unmake decks under it.
+ *
+ * The core rulebook does not mention sideboards at all: this is an
+ * organized-play limit, which is exactly the kind of number that moves again.
+ * Treating it as a ceiling means the next change costs one line and breaks
+ * nobody's saved decks.
+ *
+ * Every reader goes through this constant. The one place that had hardcoded the
+ * number instead — `deck-file-parser` — now reads it too, because a size living
+ * in two places is a size that drifts; the two happened to agree only because
+ * the number had never changed.
+ */
+export const SIDEBOARD_SIZE = 10;
 export const RUNE_DECK_SIZE = 12;
