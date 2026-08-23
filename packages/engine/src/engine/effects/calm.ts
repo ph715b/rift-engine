@@ -1603,28 +1603,32 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     // card, so re-implementing it here would pay his conquer/hold XP twice —
     // the same reasoning Herald of Spring's entry above sets out at length.
     //
-    // **The `[Level 6]` gate is checked at RESOLUTION, and that is a recorded
-    // divergence rather than the rule.** 727.1.c.1 is explicit: "Triggered
-    // Abilities of Dependent Keywords must be Active for their trigger to be
-    // EVALUATED" — so the question belongs at the moment the play triggers,
-    // before the ability becomes a Chain Pending Item, and 727.1.c.3.a's
-    // companion rule (a chain item is unaffected by the condition lapsing
-    // afterwards) says it must not then be re-asked. On-play unit triggers are
-    // held (383), and `UnitTriggerDefinition` has no `applies` hook for a
-    // fire-time condition — that is the ONE field this needs, and it lives in the
-    // shared `engine/unit-triggers.ts` beside the `holdUnitTrigger` call that
-    // would consult it. `EventTriggerDefinition`, `DeathWatchDefinition` and
-    // `DeathknellDefinition` all already have one; this family does not.
+    // **The `[Level 6]` gate is asked at TRIGGER time, as of 2026-08-23.**
+    // 727.1.c.1: "Triggered Abilities of Dependent Keywords must be Active for
+    // their trigger to be EVALUATED" — so the question belongs at the moment the
+    // play triggers, before the ability becomes a Chain Pending Item, and once it
+    // is on the Chain it is independent of what made it (383.3 with 377.3.a.1)
+    // and is not re-asked.
     //
-    // The window is the response window his own play opens, and it is reachable
-    // in both directions: XP crossing 6 during it wrongly switches the draw ON,
-    // and XP spent during it wrongly switches it OFF.
+    // It was checked in `resolve` until now, and that was wrong in BOTH
+    // directions across the response window his own play opens: XP crossing 6
+    // during it wrongly switched the draw ON, and XP spent during it wrongly
+    // switched an already-triggered draw OFF. It also held a Pending Item that
+    // resolved to nothing, which costs both players a PassFocus for an ability
+    // that never triggered.
     //
-    // `ctx.casterIndex` for both the threshold and the draw — 824.1.c makes the
-    // condition the CONTROLLER's XP, and "draw 1" is his too.
+    // The divergence note that recorded this named exactly one missing field — an
+    // `applies` hook on `UnitTriggerDefinition`, which its three siblings already
+    // had — and was right. This is the only card in the pool that needs it: of
+    // the ten `atLevel` sites, four are continuous Might modifiers read live, two
+    // are spells resolving from the chain, one is an activated ability that
+    // resolves inline, and this is the only one in `unitTriggers`.
+    //
+    // `ctx.casterIndex` for the draw and `casterIndex` for the threshold —
+    // 824.1.c makes the condition the CONTROLLER's XP, and "draw 1" is his too.
     targeting: { kind: "none" },
-    resolve: (state, ctx) =>
-      atLevel(state, ctx.casterIndex, WUJU_APPRENTICE_LEVEL) ? drawCards(state, ctx.casterIndex, 1) : state,
+    applies: (state, casterIndex) => atLevel(state, casterIndex, WUJU_APPRENTICE_LEVEL),
+    resolve: (state, ctx) => drawCards(state, ctx.casterIndex, 1),
   },
   "SFD-058": {
     // Ornn - Blacksmith's FIRST moment — "When you play me or when I hold, look

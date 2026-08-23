@@ -111,6 +111,31 @@ export interface UnitTriggerEvent {
 
 export interface UnitTriggerDefinition {
   targeting: TargetingSpec;
+  /**
+   * Asked at TRIGGER time — before the ability becomes a Chain Pending Item —
+   * and only for conditions the rules put there.
+   *
+   * **727.1.c.1**: "Triggered Abilities of Dependent Keywords must be Active for
+   * their trigger to be EVALUATED." A `[Level N]` ability below its threshold is
+   * Inactive, so it does not trigger at all; it must not be held and then
+   * resolved to nothing, which is a different observable (a held item costs both
+   * players a PassFocus) as well as a different answer.
+   *
+   * And once it IS on the Chain, nothing here is re-asked: **383.3** with
+   * **377.3.a.1** make a triggered ability independent of the card that made it,
+   * so the condition lapsing in the response window cannot un-make it. That is
+   * the same principle 727.1.c.3.a spells out for the Activated case.
+   *
+   * **Only for fire-time conditions.** A per-turn allowance, a resource, or "if
+   * you control X" that the card checks as it resolves belongs in `resolve` — The
+   * Dreaming Tree's entry records that distinction at length. The test for this
+   * hook is whether the RULES put the question at the moment of the event.
+   *
+   * The three sibling definitions (`EventTriggerDefinition`,
+   * `DeathWatchDefinition`, `DeathknellDefinition`) have carried one of these all
+   * along; this family did not, which is what the UNL-040 divergence was about.
+   */
+  applies?: (state: GameState, casterIndex: 0 | 1, unit: UnitInstance) => boolean;
   resolve: (state: GameState, ctx: EffectContext, unitInstanceId: string, event: UnitTriggerEvent) => GameState;
 }
 
@@ -686,6 +711,12 @@ export function dispatchOnPlayUnit(
   // unobservable today. It becomes real for the first card with both.
   const trigger = allUnitTriggers()[unit.defId];
   if (!trigger) return withWeaponmaster;
+  // 727.1.c.1 — an Inactive ability is not evaluated, so it never reaches the
+  // Chain. Asked against the board as it stands at the moment of the play, which
+  // is what "evaluated" means here.
+  if (trigger.applies !== undefined && !trigger.applies(withWeaponmaster, casterIndex, unit)) {
+    return withWeaponmaster;
+  }
   return holdUnitTrigger(withWeaponmaster, unit, casterIndex, {
     destination,
     ...(extra?.targetUnitInstanceId !== undefined ? { targetUnitInstanceId: extra.targetUnitInstanceId } : {}),
