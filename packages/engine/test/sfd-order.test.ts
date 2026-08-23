@@ -453,6 +453,85 @@ describe("Blood Money (SFD-162): kill a small unit at a battlefield, and get pai
     state.players[1]!.baseUnits = [makeUnit({ might: 1, name: "At home" })];
     expect(offeredVictims(state, spellId)).toEqual(["Out there"]);
   });
+
+  /**
+   * **SETTLED 2026-08-23 — and by a rule, not by the analogy the card's comment
+   * had to reason from.** `rules-conformance.md` carried this as the one open
+   * question on the card ("the agent flagged it as the one place it wanted a
+   * ruling"), reasoning from Deathgrip's "if you do" on one side and Hidden
+   * Blade's unconditional draw on the other, and closing with "**untested either
+   * way — report as unexercised, not as working**".
+   *
+   * **359.3.e.14 is the linked-instructions rule and its two worked examples are
+   * those exact two cards.** 359.3.e.14.b: "If the Game Action performed in an
+   * earlier linked instruction is replaced, this will **not** affect the later
+   * linked instruction, **unless the later linked instruction directly references
+   * the Game Action being performed**." The rule then works both sides:
+   *
+   *  - *Hidden Blade* — "Kill a unit at a battlefield. **Its** controller draws
+   *    2." "Its" references the OBJECT, so the draw "will execute even if the
+   *    kill action of the earlier linked action is replaced".
+   *  - *Deathgrip* — "Kill a friendly unit. **If you do**, …" directly references
+   *    the action, so "the later linked instruction will not execute".
+   *
+   * Blood Money says "If **it** was an enemy unit" — a fact about the object, in
+   * the past tense, with no reference to the kill. That is Hidden Blade's case,
+   * so the Gold is paid even when the death is replaced. The engine already did
+   * this; nothing pinned it.
+   *
+   * The Deathgrip contrast below is what makes this a test about the rule rather
+   * than about the engine happening not to re-check.
+   */
+  it("still pays when the kill is REPLACED by a death ward (359.3.e.14.b)", () => {
+    const { state, spellId } = moneyState([], [makeUnit({ might: 2, name: "Warded" })]);
+    const victimId = unitsAt(state, "bf1", "p2")[0]!.instanceId;
+    state.deathWardedUnitInstanceIds = [victimId];
+    const play = castsOf(state, spellId).find((a) => a.type === "PlayCard" && a.targetUnitInstanceId === victimId);
+    const after = castAndResolve(state, play, "Blood Money into a ward");
+
+    // The ward really fired — without this the test would also pass on an engine
+    // where the ward silently did nothing and the unit simply died. It heals,
+    // exhausts and RECALLS, so the survivor is in the owner's base, not here.
+    expect(after.deathWardedUnitInstanceIds, "the ward was not spent").not.toContain(victimId);
+    expect(unitsAt(after, "bf1", "p2"), "the unit stayed at the battlefield — the ward did not recall it").toHaveLength(0);
+    expect(
+      after.players[1]!.baseUnits.map((u) => u.instanceId),
+      "the ward did not save the unit — it really died",
+    ).toContain(victimId);
+    expect(after.players[1]!.trash.map((c) => c.instanceId), "the unit reached the trash anyway").not.toContain(victimId);
+    expectGold(after, 0, 1);
+  });
+
+  it("...and pays NOTHING when the target is gone by resolution (359.3.e.14.a)", () => {
+    // The other half of the same rule: "In order for a later linked instruction
+    // to execute, its earlier linked instruction must have executed. If the
+    // earlier linked instruction is ignored for any reason, the later linked
+    // instruction will also be ignored." A mistarget is ignored, not replaced —
+    // 359.3.e.14.a's own Hidden Blade example is a unit that "changes zones or
+    // moves to base in reaction".
+    const { state, spellId } = moneyState([], [makeUnit({ might: 2, name: "Fleeing" })]);
+    const victimId = unitsAt(state, "bf1", "p2")[0]!.instanceId;
+    const play = castsOf(state, spellId).find((a) => a.type === "PlayCard" && a.targetUnitInstanceId === victimId);
+    // Announced against a legal target, THEN the unit leaves while the spell
+    // waits on the chain — which is the shape 359.3.e.14.a describes and the only
+    // one the engine can reach. Removing it before announce would just make the
+    // play illegal and prove nothing.
+    const announced = accept(state, play, "Blood Money");
+    expect(announced.spellChain, "the spell resolved on announce, so nothing waited").toHaveLength(1);
+    const fled: GameState = {
+      ...announced,
+      battlefields: announced.battlefields.map((bf) =>
+        bf.id === "bf1" ? { ...bf, units: { ...bf.units, p2: [] } } : bf,
+      ),
+    };
+    let after = fled;
+    for (let guard = 0; guard < 8 && after.spellChain.length > 0; guard += 1) {
+      const pass = legalActions(after).find((a) => a.type === "PassFocus");
+      if (!pass) break;
+      after = accept(after, pass, "PassFocus");
+    }
+    expectGold(after, 0, 0);
+  });
 });
 
 // ── Deathgrip (SFD-163) ─────────────────────────────────────────────────────

@@ -765,12 +765,27 @@ export const cardEffects: Record<string, EffectDefinition> = {
       const killed = destroyUnit(state, event.targetUnitInstanceId, ctx.casterIndex);
       // **"If it WAS an enemy/friendly unit" is a question about WHOSE it was,
       // not about whether the kill landed** — so unlike Deathgrip's "if you do"
-      // just below, this deliberately does NOT re-ask the board. The past tense
-      // is forced by the ordering (the unit is in a trash by the time the clause
-      // is read), and a card that meant to gate on the death says "if you do".
-      // Consequence, stated: a victim saved by a death ward (808.1.d.1) still
-      // pays out. Hidden Blade takes the same shape — its "its controller draws
-      // 2" also survives a replaced kill.
+      // just below, this deliberately does NOT re-ask the board.
+      //
+      // **SETTLED 2026-08-23 by 359.3.e.14, whose two worked examples are the
+      // very cards this comment used to reason from by analogy.** These are
+      // LINKED INSTRUCTIONS, and 359.3.e.14.b draws the line exactly where this
+      // resolver does: "If the Game Action performed in an earlier linked
+      // instruction is replaced, this will **not** affect the later linked
+      // instruction, **unless the later linked instruction directly references
+      // the Game Action being performed**."
+      //  - *Hidden Blade* ("Kill a unit… **Its** controller draws 2") references
+      //    the OBJECT, and the rule says the draw happens anyway.
+      //  - *Deathgrip* ("**If you do**…") references the ACTION, and the rule
+      //    says its second half does not execute.
+      // "If **it** was an enemy unit" is a fact about the object in the past
+      // tense and names no action, so it is Hidden Blade's case: **a victim saved
+      // by a death ward (808.1.d.1) still pays out.** Pinned in sfd-order.test.ts
+      // with the Deathgrip contrast beside it.
+      //
+      // The `!location` bail above is 359.3.e.14.a, the other half: "if the
+      // earlier linked instruction is ignored for any reason, the later linked
+      // instruction will also be ignored" — a mistarget pays nothing.
       return placeGoldTokens(killed, ctx.casterIndex, wasFriendly ? 2 : 1);
     },
   },

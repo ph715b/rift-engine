@@ -11,7 +11,7 @@ import { createCardInstance } from "../src/model/card.js";
 import type { GameState, SpellChainEntry } from "../src/model/game-state.js";
 import type { PlayCardAction } from "../src/actions/player-action.js";
 import type { RuneCard } from "../src/model/rune.js";
-import { makeState, makeUnit, resolveHeldTriggers, spellInstance } from "./fixtures.js";
+import { makeState, makeUnit, realUnitInstance, resolveHeldTriggers, spellInstance } from "./fixtures.js";
 
 /**
  * The "this turn" cluster — effects that arm now and fire later.
@@ -24,6 +24,7 @@ import { makeState, makeUnit, resolveHeldTriggers, spellInstance } from "./fixtu
 
 const registry = defaultCardRegistry();
 const SKY_SPLITTER = "OGN-014"; // cost reduced by the highest Might among units you control
+const EAGER_APPRENTICE = "OGN-084"; // spells cost 1 less, to a minimum of 1 — 356.4.e's other half
 const RAGING_FIREBRAND = "OGN-031"; // the NEXT spell you play this turn costs 5 less
 const UNYIELDING_SPIRIT = "OGN-145"; // prevent all spell and ability damage this turn
 const IMPERIAL_DECREE = "OGN-221"; // when ANY unit takes damage this turn, kill it
@@ -83,6 +84,54 @@ describe("Sky Splitter (OGN-014): cost reduced by your biggest body", () => {
 
   it("is reported as implemented by coverage", () => {
     expect(isCardImplemented(registry.get(SKY_SPLITTER))).toBe(true);
+  });
+
+  /**
+   * **PINNED DIVERGENCE — 2026-08-23. This is 356.4.e's OWN worked example, and
+   * both cards are in this pool.**
+   *
+   * *"356.4.e. If a discount applies a minimum cost, that minimum applies only to
+   * that discount. Example: **Eager Apprentice** says 'While I'm at a
+   * battlefield, the Energy costs for spells you play is reduced by [1], to a
+   * minimum of [1].' A player who controls Eager Apprentice and a unit with 7
+   * Might plays **Sky Splitter**, a spell that costs 8 Energy and says 'This
+   * spell's Energy cost is reduced by the highest Might among units you control.'
+   * That player **can choose to apply Eager Apprentice's discount first**,
+   * reducing Sky Splitter's Energy cost to 7, then apply Sky Splitter's discount,
+   * reducing its Energy cost to **0**. If they applied these discounts in the
+   * other order, Sky Splitter's Energy cost would be **1**."*
+   *
+   * **356.4.c.1 and 356.4.d.1 make the order the PLAYER's choice** ("may be
+   * applied in any order"). `modifiedEnergyCost` fixes one order instead, and the
+   * order it fixed is the expensive one: Sky Splitter's self-scaling discount is
+   * applied around line 1278 and Eager Apprentice's floored one around line 1376.
+   * Every block in that function carries the same reasoning — "a sometimes-
+   * discount should reduce what the card prints, not something already reduced" —
+   * which is a sensible instinct and, for a FLOORED discount, backwards.
+   *
+   * **It overcharges by 1, so it can make a legal play unaffordable** — the
+   * project owner's standing ruling is that the engine never withholds a legal
+   * play. The class is wider than these two cards: any floored board-discount
+   * (Eager Apprentice, Vex - Cheerless, Stargazer, Herald of Scales) meeting any
+   * self-scaling one (Sky Splitter, Rhasa, Jaull Fish, Shadowblade Lurker, Plaza
+   * Guardian, Concentrate, Master Yi, a Firebrand charge).
+   *
+   * Not fixed in the same change: `modifiedEnergyCost` prices every enumerated
+   * action, so reordering it moves what the AI can afford and therefore
+   * `reachability`. **INVERT this pin when it is fixed rather than deleting it.**
+   */
+  it("charges 1 where 356.4.e lets the player pay 0 (divergent, pinned)", () => {
+    const state = makeState({ phase: "Action" });
+    state.battlefields[0]!.units = {
+      p1: [realUnitInstance(EAGER_APPRENTICE), makeUnit({ might: 7, name: "Big" })],
+    };
+    // The two controls, so this cannot pass on a board that is not the example's.
+    expect(modifiedEnergyCost(state, 0, "Spell", 8, SKY_SPLITTER + "-nope"), "the fixture's Apprentice is not discounting")
+      .toBe(7);
+    expect(
+      modifiedEnergyCost(state, 0, "Spell", 8, SKY_SPLITTER),
+      "DIVERGENCE CLOSED — the discounts now apply in the cheaper order; invert this pin",
+    ).toBe(1);
   });
 });
 
