@@ -76,6 +76,11 @@ export * from "./engine/effective-might.js";
 export * from "./engine/damage-modifiers.js";
 export * from "./engine/cost-modifiers.js";
 
+/** Which battlefields carry a TRIGGERED ability, for `probes/battlefield-reach.ts`.
+ *  A named export rather than `export *`: the module also holds the tables and
+ *  the resolvers, and a probe has no business reaching those. */
+export { battlefieldAbilityDefIds } from "./engine/battlefield-abilities.js";
+
 export * from "./ai/heuristic-ai.js";
 
 export * from "./util/rng.js";

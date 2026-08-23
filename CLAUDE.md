@@ -12,7 +12,7 @@ npm run build --workspace=@rift-engine/engine     # BEFORE the typecheck AND any
 npm run typecheck                                 # both workspaces; COUNT the errors
 npm run build
 cd packages/engine
-node probes/{ai-health,passive-human,chain-depth,walkout,reachability,hunt-xp}.ts
+node probes/{ai-health,passive-human,chain-depth,walkout,reachability,hunt-xp,battlefield-reach}.ts
 ```
 
 **`hunt-xp` is here because `reachability` CANNOT see XP.** A keyword is not a
@@ -22,6 +22,38 @@ evidence for nor against it. XP has one writer (`gainXp`), so "did any player's
 XP ever rise in a real game" is the only question that settles whether the
 keyword is live or inert in play. Expect every XP keyword to need this probe
 rather than the coverage gates.
+
+**`battlefield-reach` is here for the same reason one level up: NOTHING ELSE CAN
+SEE A BATTLEFIELD IN PLAY.** `card-loader`'s `shouldSkip` keeps Battlefield cards
+out of the registry, so `reachability` never counts one and `isCardImplemented`
+is never asked about one; `walkout`, `chain-depth` and `reachability` all pin
+`legacyBattlefields()` on purpose, and the preset decks name a few more. **Only
+eight of the 64 were ever in play in any instrument here, and all eight are
+OGN.** SFD's 15, UNL's 15 and VEN's 10 had never been on a board at all, so a
+battlefield that was correct, tested, hard-gated and completely inert in play was
+indistinguishable from one that fires every game.
+
+It is a NEW probe rather than a change to the pinned ones, deliberately: making
+`walkout` roll real battlefields would move 190/113/29 and making `reachability`
+do it would move every per-set figure.
+
+Pinned at **132 games, 64 in play, 36 of 38 triggered ones firing, 0 invalid**,
+with fired/triggered per set OGN 15/16, SFD 10/10, UNL 9/9, VEN 2/3. The two
+silent ones are conditional rather than broken and are named in the probe's own
+header; a THIRD name appearing there is the finding to chase.
+
+**It earned its keep on the first run** - OGN-292 The Dreaming Tree had been
+implemented and hard-gated for the life of the engine with no behavioural test at
+all, and `battlefield-coverage` could not see it, because that gate asks whether
+an entry exists and the entry does. **Silent in play AND pinned by nothing is the
+pair that matters**; either half alone is fine, which is why this probe reports
+the list rather than gating on it.
+
+**Its own first run was wrong before the engine was**, in the way this file keeps
+recording: 22 invalid actions in 22 games, which was the probe playing on after
+someone had won rather than any offered-then-refused. `legalActions` keeps
+enumerating once a winner exists; `walkout` breaks on the `GameOver` result and
+that is why it reports 0.
 
 `reachability` REPLACES the two `exercised` lines that used to sit here — it runs
 the preset decks and one covering run per set in a single 10-second process, and
