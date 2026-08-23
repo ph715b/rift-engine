@@ -1877,15 +1877,22 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
     // Mel's shape with a rainbow pip on top, and the same first sentence — so the
     // two arrive together and share the `empowerPermanent` hook.
     //
-    // **`owner: "friendly"` is a NARROWING and a recorded one**, exactly as
-    // Jayce - Defender of Tomorrow's "a gear" is: her text names no owner, so an
-    // enemy unit is legal to name, and `readyPermanent` only reaches the acting
-    // player's. Withholding it is the safe direction — readying an opponent's
-    // unit is never desirable — and it is in docs/rules-conformance.md rather
-    // than silent.
+    // **No `owner`, because her text names none** — "Ready a unit" is any unit,
+    // and an enemy one is legal to choose.
+    //
+    // It was `owner: "friendly"` until 2026-08-22 and recorded as narrower than
+    // printed, on the reasoning that `readyPermanent` only reached the acting
+    // player's units and that withholding an option nobody would take is the safe
+    // direction. The first half was a fact about the helper rather than about the
+    // card, and it is fixed there — `readyUnit` always handled any owner
+    // correctly, including the Mageseeker Warden's lock. The second half is the
+    // argument this project does not accept: a legal play is offered even when it
+    // looks pointless, and "never desirable" is not always true anyway — readying
+    // an enemy unit can bait it out of a Showdown, and Maduli-style lock cards
+    // make it situational.
     kind: "Legend",
     cost: { disempowerSelf: true, power: { domain: null, count: 1 }, exhaust: true },
-    targeting: { kind: "unit", owner: "friendly", scope: "anywhere", exhaustedOnly: true },
+    targeting: { kind: "unit", scope: "anywhere", exhaustedOnly: true },
     resolve: (state, ctx, event) =>
       event.targetUnitInstanceId === undefined
         ? state

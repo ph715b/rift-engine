@@ -515,27 +515,70 @@ describe("Zed, Without a Sound (VEN-112): a Clone on conquer, and a swap", () =>
   });
 
   it("does NOT swap with an ordinary friendly unit", () => {
-    // The spec cannot express "a Shadow Clone", so the token filter lives in the
-    // resolver — and a non-Clone target resolves to nothing rather than swapping.
+    // **The premise of this test changed on 2026-08-22, and it got STRONGER.**
+    //
+    // It used to read: the spec cannot express "a Shadow Clone", so the token
+    // filter lives in the resolver, and a non-Clone target resolves to nothing
+    // rather than swapping. That was the divergence recorded for this card — the
+    // ability was OFFERED on every friendly unit and quietly did nothing, which
+    // spends the cost for no effect.
+    //
+    // `narrowing: "VEN-112-clone"` moved the filter to the OFFER, where 355.9.b
+    // and 355.8 put it. So the assertion is no longer "the swap resolves to
+    // nothing" but "the swap is refused", which is what the card means. The old
+    // outcome is still asserted underneath: nothing moved.
     const zed = realUnitInstance(ZED_SILENT);
+    const clone = createToken({ name: "Shadow Clone", might: 0, tag: "Shadow Clone" });
     const ordinary = makeUnit({ instanceId: "ordinary" });
     const state = makeState({ phase: "Action" });
     state.battlefields[0]!.units = { p1: [zed] };
-    state.players[0]!.baseUnits = [ordinary];
+    // A Clone IS present, so the ability is offered and there is a real action to
+    // forge from. Without one the ability is not offered at all — asserted
+    // separately below, because "no action to submit" and "the action was
+    // refused" are different facts and both are the card.
+    state.players[0]!.baseUnits = [clone, ordinary];
     state.players[0]!.channeled = Array.from(
       { length: 4 },
       (_, i) => ({ id: `c${i}`, domain: "Chaos", state: "Ready" }) as RuneCard,
     );
 
-    const activate = legalActions(state).find(
+    const offered = legalActions(state).filter(
       (a) => a.type === "ActivateAbility" && a.permanentInstanceId === zed.instanceId,
     );
-    const { state: after } = submit(state, { ...activate!, targetUnitInstanceId: ordinary.instanceId } as never);
+    expect(offered.length, "his ability was not offered at all").toBeGreaterThan(0);
+    expect(
+      offered.filter((a) => a.type === "ActivateAbility" && a.targetUnitInstanceId === ordinary.instanceId),
+      "an ordinary unit was offered as a Shadow Clone",
+    ).toHaveLength(0);
 
+    // Forged by hand, which is the only way to reach the executor with this
+    // target now that the enumerator will not produce it.
+    const { state: after, result } = submit(state, {
+      ...offered[0]!,
+      targetUnitInstanceId: ordinary.instanceId,
+    } as never);
+    expect(result.type, "a hand-built swap naming a non-Clone was accepted").toBe("Invalid");
     expect(after.players[0]!.baseUnits.map((u) => u.instanceId), "it swapped with a non-Clone").toContain(
       ordinary.instanceId,
     );
     expect(after.battlefields[0]!.units.p1?.map((u) => u.instanceId)).toContain(zed.instanceId);
+  });
+
+  it("is not offered AT ALL when he controls no Shadow Clone", () => {
+    // The other half: a mode with no legal target is not offered, so Zed with no
+    // Clone simply has no ability to activate rather than a wasted one.
+    const zed = realUnitInstance(ZED_SILENT);
+    const state = makeState({ phase: "Action" });
+    state.battlefields[0]!.units = { p1: [zed] };
+    state.players[0]!.baseUnits = [makeUnit({ instanceId: "ordinary" })];
+    state.players[0]!.channeled = Array.from(
+      { length: 4 },
+      (_, i) => ({ id: `c${i}`, domain: "Chaos", state: "Ready" }) as RuneCard,
+    );
+    expect(
+      legalActions(state).filter((a) => a.type === "ActivateAbility" && a.permanentInstanceId === zed.instanceId),
+      "the swap was offered with no Shadow Clone to swap with",
+    ).toHaveLength(0);
   });
 });
 

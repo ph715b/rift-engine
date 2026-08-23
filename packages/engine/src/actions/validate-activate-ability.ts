@@ -20,6 +20,8 @@ import {
   unchooseableAmong,
   unitOrGearTargets,
   unitSatisfiesAttackingOnly,
+  unitSatisfiesNarrowing,
+  ownerIndexOf,
   activatableGearTargets,
 } from "../engine/target-lookup.js";
 import { attachableEquipment, equipmentPairedWith } from "../engine/equipment.js";
@@ -207,8 +209,21 @@ export function validateActivateAbility(state: GameState, action: ActivateAbilit
     // action and an accepted action can't come apart — the failure mode that bit
     // this codebase before, when legal-actions offered a destination the
     // validator refused.
+    // **`narrowing` is in this filter as of 2026-08-22, and it was missing.**
+    // `legal-actions` has applied `unitSatisfiesNarrowing` on the ability path
+    // since the named narrowings landed; this walk did not, so a hand-built
+    // action naming a unit the enumerator would never have offered was accepted.
+    //
+    // It was latent — Decree of Focus is a SPELL, and no ABILITY carried a
+    // narrowing until VEN-112 Zed, Without a Sound got one — but latent is the
+    // only interesting kind: this is precisely the "honoured by the enumerator
+    // and ignored by the validator" split that `card-effects.ts`'s own doc calls
+    // this codebase's most-repeated bug, sitting one card away from being live.
     const legal = eligibleTargets(state, action.playerIndex, targeting.owner, targeting.scope, targeting.domain).filter(
-      (u) => (!targeting.exhaustedOnly || u.exhausted) && unitSatisfiesAttackingOnly(state, u, targeting.attackingOnly),
+      (u) =>
+        (!targeting.exhaustedOnly || u.exhausted) &&
+        unitSatisfiesAttackingOnly(state, u, targeting.attackingOnly) &&
+        unitSatisfiesNarrowing(state, u, ownerIndexOf(state, u), targeting.narrowing),
     );
     if (!legal.some((u) => u.instanceId === action.targetUnitInstanceId)) {
       return fail(`${action.targetUnitInstanceId} is not a legal target for ${card.name}'s ability`);

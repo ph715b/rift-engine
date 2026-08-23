@@ -506,6 +506,13 @@ function activateAbilityCandidates(state: GameState, actor: PlayerState, playerI
           // is the mirror-image gap; one filter reaching only half its call
           // sites is how a spec field comes to be silently ignored.
           if (!unitSatisfiesAttackingOnly(state, target, mode.targeting.attackingOnly)) continue;
+          // **And `narrowing`, added 2026-08-22 for VEN-112 Zed, Without a
+          // Sound — the third field to reach only half its call sites, exactly
+          // as the comment above predicted.** The spell path has applied this
+          // since the named narrowings landed; this one did not, so Zed offered
+          // every friendly unit as a Shadow Clone. The validator was missing it
+          // too, which is the only reason the two agreed.
+          if (!unitSatisfiesNarrowing(state, target, ownerIndexOf(state, target), mode.targeting.narrowing)) continue;
           // A mode that ATTACHES an Equipment needs to name WHICH, so the
           // fan-out is unit x Equipment — the same second-axis shape
           // `movesTarget` uses, off the same shared walk the validator checks

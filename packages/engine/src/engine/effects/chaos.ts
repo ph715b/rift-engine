@@ -5546,20 +5546,34 @@ export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {
     // stamps, and it is exported from the leaf constants module precisely so a
     // reader here and the ability table cannot drift.
     //
+    // **`narrowing` is what makes that a TARGETING restriction rather than a
+    // resolver check, as of 2026-08-22.** It used to be only the latter, so the
+    // ability offered every friendly unit and an ordinary one spent the cost and
+    // swapped nothing — recorded in docs/rules-conformance.md as wider than
+    // printed. 355.9.b ("it meets all targeting restrictions") and 355.8's
+    // declaration at finalization together say an ineligible unit must never be
+    // OFFERED, which is the same reasoning Tideturner's own note gives.
+    //
+    // The recorded blocker was "closing it means a token-identity axis on
+    // `TargetingSpec`". `NAMED_UNIT_NARROWINGS` is the escape hatch that already
+    // existed for a condition too card-specific to be an axis.
+    //
     // **`[Action]` needs nothing** — `validate-activate-ability` applies no
     // turnState, chain or priority check to ANY activation, a standing
     // permissiveness that file's own doc records. Stated because the keyword being
     // free is a fact about the engine rather than about this card.
     kind: "Unit",
     cost: { energy: 1, power: { domain: "Chaos", count: 1 } },
-    targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
+    targeting: { kind: "unit", owner: "friendly", scope: "anywhere", narrowing: "VEN-112-clone" },
     resolve: (state, ctx, event, sourceInstanceId) => {
       const targetId = event.targetUnitInstanceId;
       if (targetId === undefined) return state;
-      // Re-checked rather than trusted: the offer is enumerated from a spec that
-      // cannot express "a Shadow Clone", so THIS is where the token filter lives.
-      // A non-Clone target resolves to nothing rather than swapping, which is the
-      // conservative direction — see the divergence recorded for it.
+      // Kept as defence in depth now that the offer and the validator both apply
+      // the narrowing. It is no longer where the card's restriction LIVES — that
+      // is `VEN-112-clone` — and a mutation run will report it redundant, which
+      // is the honest description: it costs nothing and it is the last thing
+      // standing between a swap and a hand-built action if either shared walk
+      // ever stops asking.
       const target = findUnitAnywhere(state, targetId);
       if (!target || target.unit.defId !== SHADOW_CLONE_TOKEN_DEF_ID) return state;
       return swapUnitLocations(state, ctx.casterIndex, sourceInstanceId, targetId);

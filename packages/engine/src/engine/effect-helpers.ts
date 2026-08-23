@@ -3054,7 +3054,21 @@ export function readyUnit(state: GameState, targetInstanceId: string): GameState
  */
 export function readyPermanent(state: GameState, playerIndex: 0 | 1, instanceId: string): GameState {
   const asUnit = findUnitAnywhere(state, instanceId);
-  if (asUnit && asUnit.ownerIndex === playerIndex) return readyUnit(state, instanceId);
+  // **Any unit, not only the actor's.** This used to require
+  // `asUnit.ownerIndex === playerIndex`, which silently dropped an enemy unit
+  // through to the gear/Legend half below and readied nothing — the narrowing
+  // recorded for Ambessa - Matriarch of War ("Ready a unit", no owner printed).
+  //
+  // `readyUnit` is the right authority for a unit and needs no help from here: it
+  // asks the Mageseeker Warden's lock about the UNIT'S OWNER, which is what makes
+  // "spells and abilities can't ready enemy units" bind in the correct direction
+  // — my Warden stops me readying their unit — and it asks Maduli per-unit. The
+  // owner check here was answering a question `readyUnit` already answers better.
+  //
+  // A card that must not reach an enemy unit says so in its own `targeting`,
+  // which is where a card's text belongs; this helper is not the place to hold
+  // one card's restriction on behalf of all of them.
+  if (asUnit) return readyUnit(state, instanceId);
   // The GEAR and Legend half of the Warden's lock — "enemy units AND GEAR".
   // Units come through `readyUnit` above, which asks the same question.
   if (!mayReadyPermanent(state, playerIndex)) return state;

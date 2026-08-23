@@ -4,6 +4,7 @@ import type { Domain } from "../model/domain.js";
 import { cardModeOf, slotOwner, slotScope, type TargetingSpec, type TargetScope } from "./card-effects.js";
 import { effectiveMight } from "./effective-might.js";
 import { canonicalDefId } from "../cards/card-loader.js";
+import { SHADOW_CLONE_TOKEN_DEF_ID } from "./constants.js";
 import { counterableSpells, spellsOnChain } from "./counter-spell.js";
 import { attackerIndexAt } from "./combat-designation.js";
 // NOTE: equipment.ts imports findUnitAnywhere from this module, so this is a
@@ -991,6 +992,21 @@ const NAMED_UNIT_NARROWINGS: Readonly<
   "VEN-040-focus": (state, unit, unitOwnerIndex) =>
     inCombatWithEnemyOfDomain(state, unit, unitOwnerIndex, "Fury") ||
     chosenByEnemySpellOfDomain(state, unit, unitOwnerIndex, "Fury"),
+  // Zed, Without a Sound (VEN-112) — "Move me and A SHADOW CLONE YOU CONTROL to
+  // each other's locations."
+  //
+  // Token IDENTITY, which no axis on `TargetingSpec` expresses: the fields name
+  // owners, scopes, domains and Might, and none of them can say "this particular
+  // token". The divergence recorded for this card said closing it meant adding a
+  // token-identity axis — this table is the cheaper answer it already had, and
+  // the same trade Decree of Focus above makes: a row per card beats a field
+  // named after one card.
+  //
+  // Matched on the runtime defId `createToken` stamps, from the leaf constants
+  // module, so this and the resolver cannot drift onto different spellings.
+  // Ownership is left to `owner: "friendly"` on the spec rather than re-asked
+  // here — one narrowing, one job.
+  "VEN-112-clone": (_state, unit) => unit.defId === SHADOW_CLONE_TOKEN_DEF_ID,
 };
 
 /** Is this unit at a Contested battlefield where the OTHER player has a unit of
