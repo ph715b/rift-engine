@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { runAwaken, runEnd, runBeginning } from "../src/engine/turn-manager.js";
 import { recordConquest } from "../src/engine/scoring.js";
-import { makeState, makeUnit } from "./fixtures.js";
+import { makeState, makeUnit, realUnitInstance } from "./fixtures.js";
 import type { GameState } from "../src/model/game-state.js";
 
 /**
@@ -110,5 +110,96 @@ describe("the reported game: conquering on the OPPONENT's turn", () => {
     const once = recordConquest(state, 0, "bf1");
     const twice = recordConquest(once, 0, "bf1");
     expect(pointsOf(twice, 0), "the same battlefield scored twice in one turn").toBe(pointsOf(once, 0));
+  });
+});
+
+/**
+ * **PINNED DIVERGENCE — Conquer triggers fire on a conquest that does not SCORE,
+ * and 471.2 says they should not.** Found 2026-08-23 by the unverified-row sweep,
+ * recorded in `docs/rules-conformance.md`, and deliberately NOT fixed here.
+ *
+ * The engine's premise is stated three times in `scoring.recordConquest`: *"'when
+ * you conquer' is about taking the battlefield, not about scoring, so this stays
+ * before the withheld-point branch"*. The rules file these triggers the other
+ * way round — under Scoring, as one of the two things Scoring DOES:
+ *
+ *   **471.** "When a player Scores, two things occur:"
+ *   **471.1.** "The player Gains up to one Point…"
+ *   **471.2.** "**Trigger Score abilities at the Battlefield that Scored.**"
+ *   **471.2.a.** "Conquer abilities trigger at a Battlefield that was Conquered."
+ *   **471.2.c.** "These will only trigger **when the Battlefield is Scored**; I.E.
+ *   These **cannot be triggered more than once per turn for a player**."
+ *
+ * With **470** ("a player may only Score, from either method, once per Battlefield
+ * per turn") the I.E. follows: scoring is the gate, and it opens once a turn.
+ *
+ * **The engine already reads it that way on the HOLD side.** `scoreHolds` filters
+ * out a battlefield where `mayScoreAt` is false BEFORE calling `recordHold`, so a
+ * blocked hold fires nothing. Only the conquer path disagrees — an internal
+ * inconsistency about one rule, which is what makes this worth pinning rather
+ * than leaving in a note.
+ *
+ * **Why not fixed in the same change.** It is a behaviour change to every conquer
+ * trigger in the pool, not to one card, and it would move `reachability` and
+ * `battlefield-reach` together. It wants its own scoped pass with its own
+ * controls — the same call `recallUnitToBase`'s exhaust divergence already has.
+ *
+ * These tests assert the WRONG answer on purpose. **When the divergence is
+ * closed, INVERT them** (see the `fix-a-premise-pin` skill) rather than deleting
+ * them: a conquer trigger that silently stops firing just makes cards quietly
+ * weaker, and nothing else here would notice.
+ */
+describe("471.2.c: conquer triggers should be gated on SCORING (divergent, pinned)", () => {
+  /** Forgotten Monument (SFD-209) — "players can't score here until their third
+   *  turn". It blocks the SCORING rather than the POINT, which is exactly 471.2's
+   *  gate, and it is the most reachable way to reach this branch. */
+  const FORGOTTEN_MONUMENT = "SFD-209";
+  /** Sett - Brawler — "when I conquer, buff me", the plainest conquer trigger in
+   *  the pool and the one this pin uses as its subject. */
+  const SETT_BRAWLER = "OGN-164";
+
+  const monumentAt = (): GameState => {
+    const state = makeState({ phase: "Action", activePlayerIndex: 0, turnNumber: 1 });
+    state.battlefields[0] = { ...state.battlefields[0]!, defId: FORGOTTEN_MONUMENT };
+    return state;
+  };
+
+  it("a conquest whose SCORING is blocked still holds the conquer triggers — 471.2 says it should not", () => {
+    // Forgotten Monument prints no conquer ability of its own, so the subject is
+    // a UNIT standing there: Sett - Brawler's "when I conquer, buff me", held by
+    // `holdEventTrigger` from the same call.
+    const state = monumentAt();
+    state.battlefields[0] = { ...state.battlefields[0]!, units: { p1: [realUnitInstance(SETT_BRAWLER)] } };
+    const conquered = recordConquest(state, 0, "bf1");
+    expect(conquered.players[0]!.scoredBattlefieldsThisTurn, "the fixture did not block scoring").toEqual([]);
+    expect(conquered.players[0]!.points, "the fixture scored after all").toBe(0);
+    expect(
+      conquered.pendingTriggers.map((e) => e.listenerDefId),
+      "DIVERGENCE CLOSED — a blocked conquest no longer triggers; invert this pin",
+    ).toEqual([SETT_BRAWLER]);
+  });
+
+  it("...and the HOLD path already gates the same rule correctly — the contrast", () => {
+    // `scoreHolds` filters on `mayScoreAt` before recording, so nothing fires.
+    // This is the half that agrees with 471.2, and it is why the conquer half
+    // reads as an inconsistency rather than a considered choice.
+    const state = monumentAt();
+    state.phase = "Beginning";
+    state.battlefields[0] = { ...state.battlefields[0]!, units: { p1: [makeUnit()] }, controllerId: "p1" };
+    const held = runBeginning(state);
+    expect(held.players[0]!.points, "the Monument let a blocked hold score").toBe(0);
+    expect(held.pendingTriggers.filter((e) => e.source === "battlefield")).toHaveLength(0);
+  });
+
+  it("a SECOND conquest of one battlefield in a turn triggers again — 471.2.c forbids it", () => {
+    const state = makeState({ phase: "Action", activePlayerIndex: 0 });
+    state.battlefields[0] = { ...state.battlefields[0]!, defId: "OGN-298" }; // Zaun Warrens
+    const once = recordConquest(state, 0, "bf1");
+    expect(once.players[0]!.scoredBattlefieldsThisTurn, "the first conquest did not score").toEqual(["bf1"]);
+    const twice = recordConquest({ ...once, pendingTriggers: [] }, 0, "bf1");
+    expect(
+      twice.pendingTriggers.filter((e) => e.source === "battlefield"),
+      "DIVERGENCE CLOSED — the second conquest no longer triggers; invert this pin",
+    ).toHaveLength(1);
   });
 });

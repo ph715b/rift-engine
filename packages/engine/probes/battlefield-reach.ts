@@ -52,18 +52,31 @@
  *
  * # What it found on its first run, and the figures to expect
  *
- * At the default depth: **132 games, all 64 in play, 36 of the 38 triggered ones
- * fire, 0 invalid.** Per set, fired/triggered: OGN 15/16, SFD 10/10, UNL 9/9,
+ * At the default depth: **132 games, all 64 in play, 35 of the 38 triggered ones
+ * fire, 0 invalid.** Per set, fired/triggered: OGN 14/16, SFD 10/10, UNL 9/9,
  * VEN 2/3.
  *
- * The two that stay silent are both genuinely CONDITIONAL rather than broken,
- * and they are named here so that a THIRD one appearing is visible:
+ * The three that stay silent are all genuinely CONDITIONAL rather than broken,
+ * and they are named here so that a FOURTH one appearing is visible:
  *
  *  - **VEN-162 Protective Sands** - "when you conquer here, if you control 4 or
  *    fewer runes". Conquering tends to happen late, by which point the rune
  *    count has passed four. Pinned by six tests including a positive control.
  *  - **OGN-292 The Dreaming Tree** - a spell must choose the chooser's OWN unit,
  *    standing here. The AI's spells overwhelmingly name enemy units.
+ *  - **OGN-293 The Grand Plaza** - "if you have 7+ units here" is part of the
+ *    Trigger Condition (383.2.a.1), so below seven the ability does not trigger
+ *    at all, and no self-play game here ever stacks seven units at one
+ *    battlefield. Pinned by four tests in `test/battlefield-hold.test.ts`.
+ *
+ * **The Plaza joined the list on 2026-08-23 and that is this probe telling the
+ * truth about itself.** Until then the count was asked only at RESOLUTION, so a
+ * Pending Item was placed at every hold and did nothing - and placing a chain
+ * item is the only thing this probe can see, so it reported the card as firing.
+ * Decomposed by control: `applies` forced true gives 36/2/1012 chain items, the
+ * rule's reading gives 35/3/995, and the 17-item delta is entirely the Plaza's.
+ * **"Fired" here means "reached the chain", not "did something"** - which is the
+ * same blind spot, one level down, that this probe exists to cover.
  *
  * **The Tree is why this probe was worth writing.** It had been implemented,
  * registered and hard-gated for the life of the engine with NO behavioural test

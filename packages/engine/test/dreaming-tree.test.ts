@@ -133,24 +133,43 @@ describe("'for the FIRST time each turn'", () => {
     );
   });
 
-  it("both choices really DID trigger — the allowance is a RESOURCE, not a condition", () => {
-    // The distinction the registry entry's comment turns on, asserted rather than
-    // assumed: two Pending Items are placed and only the first resolves to a draw.
-    // An implementation that suppressed the second at trigger time would pass the
-    // test above and be a different card on the chain.
-    expect(
-      heldItems(holdUnitsChosenBySpell(tree({ atTree: ["u1", "u2"] }), 0, ["u1", "u2"])),
-      "the second choice was suppressed at trigger time instead of at resolution",
-    ).toHaveLength(2);
+  /**
+   * **INVERTED 2026-08-23 by the unverified-row sweep.** This block used to read
+   * "both choices really DID trigger — the allowance is a RESOURCE, not a
+   * condition", and asserted TWO Pending Items for a spell naming two units here.
+   * It named the alternative implementation precisely and pinned the wrong one:
+   * *"An implementation that suppressed the second at trigger time would pass the
+   * test above and be a different card on the chain."* It is a different card on
+   * the chain, and it is the printed one.
+   *
+   * **383.1.b** — whose own worked example is Wraith of Echoes, the precedent the
+   * registry entry used to cite for the opposite reading: "If an ability triggers
+   * 'the [Nth] time' something happens and that trigger condition is met multiple
+   * times simultaneously, the ability's controller picks one of those instances to
+   * serve as the trigger condition. **The ability triggers only once**, due to the
+   * chosen condition." Its premise is stated as "That ability **hasn't triggered
+   * yet this turn**", and **383.3.e.1** completes it: an ability already performed
+   * its allowed number of times "**does not trigger**".
+   *
+   * Kept and pointed the other way rather than deleted, because the whole point of
+   * the original was that the DRAW cannot tell the two implementations apart — the
+   * chain is the only place the difference shows.
+   */
+  it("places ONE Pending Item for a spell naming two units here (383.1.b)", () => {
+    const held = heldItems(holdUnitsChosenBySpell(tree({ atTree: ["u1", "u2"] }), 0, ["u1", "u2"]));
+    expect(held, "one simultaneous set triggered the ability more than once").toHaveLength(1);
   });
 
-  it("a second spell later the same turn draws nothing", () => {
+  it("a second spell later the same turn does not TRIGGER at all (383.3.e.1)", () => {
     const first = resolveHeldTriggers(holdUnitsChosenBySpell(tree({ atTree: ["u1"] }), 0, ["u1"]));
     expect(first.players[0]!.hand, "the first spell did not draw").toHaveLength(1);
-    expect(
-      resolveHeldTriggers(holdUnitsChosenBySpell(first, 0, ["u1"])).players[0]!.hand,
-      "a second spell drew again in the same turn",
-    ).toHaveLength(1);
+    const second = holdUnitsChosenBySpell(first, 0, ["u1"]);
+    // On the PEN, not on the hand: the old implementation placed an item here and
+    // resolved it to nothing, which draws the same and is a different chain — an
+    // item that closes the chain and costs both players a PassFocus for an ability
+    // that can never do anything.
+    expect(heldItems(second), "a spent Tree still placed a Pending Item").toHaveLength(0);
+    expect(resolveHeldTriggers(second).players[0]!.hand, "a second spell drew again in the same turn").toHaveLength(1);
   });
 
   it("is per BATTLEFIELD, not per player", () => {

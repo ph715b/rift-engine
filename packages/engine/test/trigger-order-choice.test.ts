@@ -2,9 +2,10 @@ import { describe, expect, it } from "vitest";
 import { runCleanup } from "../src/engine/cleanup.js";
 import { ORDER_TRIGGERS, answerDecision, optionsFor, pendingDecision } from "../src/engine/decisions.js";
 import { holdEventTrigger } from "../src/engine/triggers.js";
+import { runBeginning } from "../src/engine/turn-manager.js";
 import { isSpellChainEntry } from "../src/model/game-state.js";
 import type { GameState, TriggerChainEntry } from "../src/model/game-state.js";
-import { keepTriggerOrder, makeState, makeUnit } from "./fixtures.js";
+import { keepTriggerOrder, makeState, makeUnit, realUnitInstance } from "./fixtures.js";
 
 /**
  * **383.3.d — "If more than one Triggered Ability is Triggered simultaneously,
@@ -265,5 +266,68 @@ describe("383.3.d: the controller orders their own simultaneous triggers", () =>
 
     expect(pendingDecision(settled), "the helper left the question outstanding").toBeUndefined();
     expect(chainNames(settled), "the helper reordered the chain").toEqual(before);
+  });
+});
+
+/**
+ * **A BATTLEFIELD's own printed ability is one of the orderable triggers**, and
+ * that had never been asserted anywhere.
+ *
+ * `battlefield-abilities.ts`' header and the `rules-conformance.md` row for the
+ * "when you hold here" seven both said the opposite in as many words: "a
+ * battlefield's ability is placed LAST at every moment, which under the chain's
+ * LIFO resolution (340.1) makes it resolve FIRST", recorded as an Unverified
+ * simplification because "383 in fact lets a player choose the order among their
+ * own simultaneous triggers, and this engine fixes it". That was true when it was
+ * written and stopped being true when 383.3.d was implemented — the placement is
+ * now the SEED order for a question, not the answer. Corrected 2026-08-23 by the
+ * unverified-row sweep.
+ *
+ * The rules corroborate it with a worked example that pairs exactly these two
+ * kinds of source. **438.1.a**: "A player with Green Father as their legend
+ * conquers Navori Fighting Pit. **They choose to place the Green Father conquer
+ * effect on the chain after the Navori Fighting Pit conquer effect.**"
+ *
+ * Driven through the REAL moment — `runBeginning` -> `scoreHolds` -> 469.2's
+ * hold — because a hand-built pen would prove only that `askForTriggerOrder`
+ * groups by `playerIndex`, and the open question was whether a battlefield entry
+ * reaches it at all.
+ */
+describe("383.3.d covers a battlefield's own ability", () => {
+  /** Grove of the God-Willow — "when you hold here, draw 1". */
+  const GROVE = "OGN-280";
+  /** Scorchclaw's `[Hunt]` fires on the same `battlefieldHeld` event, from a
+   *  DIFFERENT source — which is what makes an order choosable at all. */
+  const SCORCHCLAW = "UNL-016";
+
+  const heldGroveWithHunter = (): GameState => {
+    const state = makeState({ phase: "Beginning", activePlayerIndex: 0 });
+    state.battlefields[0] = {
+      ...state.battlefields[0]!,
+      defId: GROVE,
+      units: { p1: [realUnitInstance(SCORCHCLAW)] },
+      controllerId: "p1",
+    };
+    return runCleanup(runBeginning(state));
+  };
+
+  it("asks, with the battlefield among the options", () => {
+    const finalized = heldGroveWithHunter();
+    const pending = pendingDecision(finalized);
+    expect(pending?.kind).toBe(ORDER_TRIGGERS);
+    // Both sources present: a fixture that produced only one would ask nothing,
+    // and this test would then be asserting against its own setup.
+    expect(finalized.spellChain.filter((e) => !isSpellChainEntry(e) && e.source === "battlefield")).toHaveLength(1);
+    expect(optionsFor(finalized, pending!)).toHaveLength(2);
+  });
+
+  it("and the player can put the UNIT's trigger first, overriding the seed order", () => {
+    const finalized = heldGroveWithHunter();
+    const pending = pendingDecision(finalized)!;
+    // The seed: the battlefield is placed last, so by default it resolves first.
+    expect(resolutionOrder(finalized)[0]).toBe("Battlefield 1");
+    const unit = optionsFor(finalized, pending).find((o) => o.label === "Scorchclaw")!;
+    const answered = answerDecision(finalized, pending.id, unit.id)!;
+    expect(resolutionOrder(answered)[0], "the answer did not move the battlefield off the top").toBe("Scorchclaw");
   });
 });

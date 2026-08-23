@@ -238,6 +238,21 @@ export function runBeginning(state: GameState): GameState {
   // reason the permanents' and the Legend's are: holding them would put them
   // after `scoreHolds`, and a point gained after holds score is a point gained
   // in the wrong phase.
+  //
+  // **RECORDED DIVERGENCE, 2026-08-23 — and the excuse above is an artefact of
+  // THIS FUNCTION, not a constraint from the rules.** "At the start of…" is a
+  // Triggered Ability by 383.1, and 383.3 puts one on the Chain, so every one of
+  // these should be respondable and none of them is. **315.2 already gives the
+  // separation this excuse says is missing**: 315.2.a is the *Beginning Step*
+  // ("At the start of Beginning Phase game effects take place") and 315.2.b is
+  // the *Scoring Step* ("The Turn Player Holds all Battlefields they Control").
+  // A chain settled between those two steps lands the point in the right phase.
+  // This function collapses both into one call that returns at `phase: "Channel"`,
+  // so there is nowhere to settle one — splitting it reaches `submit` and the
+  // AI's settle loop, and wants its own pass.
+  //
+  // Pinned in test/battlefield-other.test.ts and recorded in
+  // docs/rules-conformance.md; invert the pin rather than deleting it.
   const afterBattlefields = runBattlefieldBeginningPhase(afterLegend, afterLegend.activePlayerIndex);
   return { ...scoreHolds(afterBattlefields, afterBattlefields.activePlayerIndex), phase: "Channel" };
 }

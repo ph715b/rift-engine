@@ -205,6 +205,30 @@ export function recordConquest(
   // this stays before the withheld-point branch and cannot be skipped by an early
   // return — the same reason ScoringSystem.java dispatches from this spot.
   //
+  // **RECORDED DIVERGENCE, 2026-08-23: the rules say the opposite of that
+  // sentence, and it is repeated three times in this function.** 471 files these
+  // triggers UNDER Scoring, as one of the two things Scoring does: "When a player
+  // Scores, two things occur: **471.1** The player Gains up to one Point…
+  // **471.2** Trigger Score abilities at the Battlefield that Scored. **471.2.a**
+  // Conquer abilities trigger at a Battlefield that was Conquered. **471.2.c**
+  // These will only trigger **when the Battlefield is Scored**; I.E. These cannot
+  // be triggered more than once per turn for a player." With 470's once-per-
+  // battlefield-per-turn Score, the I.E. follows.
+  //
+  // Two reachable consequences today: a second conquest of one battlefield in a
+  // turn re-triggers, and a conquest whose SCORING is blocked (Forgotten Monument)
+  // triggers anyway. **`scoreHolds` already reads it the rules' way on the HOLD
+  // side** — it filters on `mayScoreAt` before recording — so this is an internal
+  // inconsistency about one rule.
+  //
+  // NOT Tianna Crownguard: 471.1 gains "up to one Point", so a withheld point is
+  // still a Score and its triggers correctly fire. That distinction below is right.
+  //
+  // Left in place deliberately: fixing it changes every conquer trigger in the
+  // pool at once. See docs/rules-conformance.md's Divergent table and the three
+  // pins in test/score-once-per-turn-per-player.test.ts, which assert the wrong
+  // answer on purpose and must be INVERTED rather than deleted when it is fixed.
+  //
   // Permanents watch the same moment (Kai'Sa - Survivor), and so does a card in
   // the trash (Super Mega Death Rocket). Placed beside the Legend dispatch and
   // before the withheld-point branch for the same reason: "when you conquer" is

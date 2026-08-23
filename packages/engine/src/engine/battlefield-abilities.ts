@@ -29,7 +29,7 @@ import {
 import { placeRecruitToken, placeGoldTokens } from "./token.js";
 import { detachEquipment, isEquipmentGear } from "./equipment.js";
 import { isMighty } from "./granted-keywords.js";
-import { eventTriggerFor, type Listener } from "./triggers.js";
+import { eventTriggerFor, type GameEvent, type Listener } from "./triggers.js";
 import { completeDeath, gainPoints } from "./effect-helpers.js";
 import { fileIntoTrash } from "./effect-helpers.js";
 import { burn, payPowerFromChanneled, recallUnitToBase, returnUnitToHand } from "./effect-helpers.js";
@@ -76,6 +76,16 @@ import {
  * ability is placed LAST at every moment, which under the chain's LIFO
  * resolution (340.1) makes it resolve FIRST — the same choice, for the same
  * reason, as the Legend's position in `listeningPermanents`.
+ *
+ * **That is the SEED order, not the answer.** This used to say so flatly, and
+ * `rules-conformance.md` recorded it as a simplification against 383.3.d — "the
+ * player that controls the Abilities selects the order to place them on the
+ * Chain". 383.3.d is implemented now (`cleanup.askForTriggerOrder`), and a
+ * battlefield entry is a distinct SOURCE by its `listenerInstanceId`, so it goes
+ * into that question with everything else the moment fired. **438.1.a's own
+ * worked example is a player ordering a Legend's conquer effect against Navori
+ * Fighting Pit's**, which is exactly this pair. Corrected 2026-08-23; pinned in
+ * `test/trigger-order-choice.test.ts`.
  */
 
 /** What just happened at a battlefield, as its printed abilities read it. */
@@ -568,15 +578,34 @@ export const BATTLEFIELD_TRIGGERS: Record<string, readonly BattlefieldTriggerDef
   [THE_GRAND_PLAZA]: [
     {
       on: "hold",
-      // "If you have 7+ units HERE" is counted at RESOLUTION rather than at the
-      // hold. A response window can kill a unit standing there, and a win the
-      // opponent could no longer prevent by removing the seventh unit would be a
-      // stronger card than the one printed.
-      resolve: (state, event) => {
-        if (ownUnitsHere(state, event).length < GRAND_PLAZA_UNITS_TO_WIN) return state;
-        // Declared rather than scored — see GameState.declaredWinnerIndex.
-        return { ...state, declaredWinnerIndex: event.playerIndex };
-      },
+      /**
+       * **383.2.a.1 — "Any additional conditional statement immediately after the
+       * Condition must be true in order for the Condition to be fulfilled. Such a
+       * conditional statement is part of the Trigger Condition and not the
+       * Effect."**
+       *
+       * "When you hold here, **if you have 7+ units here**, you win the game" is
+       * that shape exactly: the `if` sits immediately after "when you hold here",
+       * so the count is part of the CONDITION and is asked at the hold. It is the
+       * same sentence as the rule's own Sona - Harmonious example ("At the end of
+       * your turn, if I'm at a battlefield, ready up to 4 friendly runes"), and
+       * NOT Loose Cannon's, whose `if` trails the effect and is therefore part of
+       * it.
+       *
+       * **So the response window cannot take it away.** Sona's example spells the
+       * consequence out — "If she is removed in reaction to the triggered ability,
+       * it will still resolve" — so a seventh unit killed while this waits on the
+       * chain does not stop the win. `resolve` deliberately does NOT re-count.
+       *
+       * This used to be the other way round, counted at resolution only, on the
+       * reasoning that "a win the opponent could no longer prevent by removing
+       * the seventh unit would be a stronger card than the one printed". That was
+       * an argument from BALANCE against a rule that had not been read; 383.2.a.1
+       * says the printed card IS the stronger one. Corrected 2026-08-23.
+       */
+      applies: (state, event) => ownUnitsHere(state, event).length >= GRAND_PLAZA_UNITS_TO_WIN,
+      // Declared rather than scored — see GameState.declaredWinnerIndex.
+      resolve: (state, event) => ({ ...state, declaredWinnerIndex: event.playerIndex }),
     },
   ],
 
@@ -1057,15 +1086,31 @@ export const BATTLEFIELD_TRIGGERS: Record<string, readonly BattlefieldTriggerDef
   [SIGIL_OF_THE_STORM]: [
     {
       on: "conquer",
-      // "You MUST recycle one of your runes. (This doesn't choose anything.)" —
-      // the parenthesis is the card telling you it is not a choice, so no decision
-      // is parked and the rune is taken in pool order. The same call, and the same
-      // reasoning, as `payEnergyFromPool`'s: deterministic, and recorded Unverified
-      // because which rune goes decides which DOMAINS remain.
-      resolve: (state, event) => {
-        const rune = state.players[event.playerIndex].channeled[0];
-        return rune ? recycleRuneToRuneDeck(state, event.playerIndex, rune.id) : state;
-      },
+      /**
+       * "You MUST recycle one of your runes. (This doesn't choose anything.)"
+       *
+       * **355.10.f quotes this card's sentence VERBATIM as its own example**, and
+       * the sentence after it is the answer: *"'You must recycle one of your
+       * runes' doesn't target anything. **You choose from among your runes as the
+       * spell or ability resolves.**"* The parenthesis means it does not TARGET —
+       * so no Deflect surcharge, no targeting restriction, nothing chosen when
+       * the ability goes on the chain — and NOT that the player makes no
+       * selection.
+       *
+       * This used to take `channeled[0]` in pool order, on the reading that "the
+       * parenthesis is the card telling you it is not a choice", with the
+       * consequence recorded Unverified "because which rune goes decides which
+       * DOMAINS remain". That consequence is real and is why it mattered; the
+       * reading was the target/choose conflation 355.10 exists to separate.
+       * Corrected 2026-08-23.
+       *
+       * Parked rather than asked inline, so `advanceDecisions` executes it
+       * without prompting when the pool holds one rune — one option is not a
+       * question — and an EMPTY pool asks nothing at all, which is 055 (do as
+       * much as you can) rather than a special case here.
+       */
+      resolve: (state, event) =>
+        parkDecision(state, { kind: `${SIGIL_OF_THE_STORM}-recycle`, playerIndex: event.playerIndex }),
     },
   ],
 
@@ -1163,12 +1208,36 @@ export const BATTLEFIELD_TRIGGERS: Record<string, readonly BattlefieldTriggerDef
   [THE_DREAMING_TREE]: [
     {
       on: "unitChosenBySpell",
-      // "For the first time each turn" is checked at RESOLUTION rather than
-      // here, following Wraith of Echoes: the per-turn allowance is a RESOURCE,
-      // not a trigger condition, so a second choice in the same turn still
-      // triggers and resolves to nothing. What DOES belong here — that the
-      // chosen unit is friendly to the chooser and standing at this battlefield
-      // — is already settled by the site that fires the moment.
+      /**
+       * **"For the FIRST time each turn" is a TRIGGER CONDITION, and 383 says so
+       * twice.** Corrected 2026-08-23.
+       *
+       * **383.3.e.1**: "Such a Triggered Ability will only be performed the
+       * specified number of times each turn. If its trigger condition would be
+       * fulfilled and it has already been performed that many times, **it does
+       * not trigger**." And **383.1.b**'s own worked example is Wraith of
+       * Echoes — the precedent this used to cite for the opposite reading —
+       * whose premise is stated as "That ability **hasn't triggered yet this
+       * turn**", and whose ruling is that two simultaneous instances make the
+       * ability "trigger only once".
+       *
+       * This used to check the allowance at RESOLUTION, calling it "a RESOURCE,
+       * not a trigger condition, so a second choice in the same turn still
+       * triggers and resolves to nothing". The difference is observable and is
+       * not just tidiness: a spent Tree was placing a Pending Item that closed
+       * the chain and cost both players a PassFocus for an ability that could
+       * never do anything — the exact cost `applies`' own doc-comment on this
+       * type exists to avoid.
+       *
+       * `holdUnitsChosenBySpell` carries the other half of 383.1.b: a Spell
+       * naming two friendly units here now places ONE item, not two.
+       *
+       * What does NOT belong here — that the chosen unit is friendly to the
+       * chooser and standing at this battlefield — is settled by the site that
+       * fires the moment.
+       */
+      applies: (state, event) =>
+        !state.players[event.playerIndex].spellChoiceDrawnBattlefieldIds.includes(event.battlefieldId),
       resolve: (state, event) => {
         const used = state.players[event.playerIndex].spellChoiceDrawnBattlefieldIds;
         if (used.includes(event.battlefieldId)) return state;
@@ -1195,9 +1264,25 @@ export const BATTLEFIELD_TRIGGERS: Record<string, readonly BattlefieldTriggerDef
  * base). Both are facts about the moment of the choice, which 355 puts at
  * announce — a unit moved or killed before the Spell resolves was still chosen.
  *
- * One Pending Item per chosen unit, because the Tree is about a unit being
- * chosen and a Spell that names two units here has chosen twice. Only the first
- * to RESOLVE draws, which is what "the first time each turn" means.
+ * **One Pending Item per BATTLEFIELD, not per chosen unit** — 383.1.b: "If an
+ * ability triggers 'the [Nth] time' something happens and that trigger condition
+ * is met multiple times simultaneously, the ability's controller picks one of
+ * those instances to serve as the trigger condition. **The ability triggers only
+ * once**, due to the chosen condition." Its worked example is Wraith of Echoes,
+ * the same clause shape.
+ *
+ * This used to place one per chosen unit, on the reading that "the Tree is about
+ * a unit being chosen and a Spell that names two units here has chosen twice.
+ * Only the first to RESOLVE draws". The draw came out the same; the CHAIN did
+ * not — a Spell naming three units here put three items on it, two of which
+ * could never do anything, and each one closed the chain and cost a PassFocus.
+ * Corrected 2026-08-23.
+ *
+ * **The controller's pick is not asked**, because every instance here produces
+ * the same ability with the same effect: the entry names a `unitInstanceId`, but
+ * the Tree's own resolution never reads it. The first chosen unit at each
+ * battlefield is taken. If a card ever makes the picked instance observable, this
+ * is the site that has to start asking.
  */
 export function holdUnitsChosenBySpell(
   state: GameState,
@@ -1206,9 +1291,12 @@ export function holdUnitsChosenBySpell(
 ): GameState {
   let next = state;
   const chooserId = state.players[chooserIndex].id;
+  const fired = new Set<string>();
   for (const unitInstanceId of chosenInstanceIds) {
     const bf = next.battlefields.find((b) => (b.units[chooserId] ?? []).some((u) => u.instanceId === unitInstanceId));
     if (!bf) continue; // in base, or not the chooser's — neither is "a friendly unit here"
+    if (fired.has(bf.id)) continue; // 383.1.b — one trigger for the whole simultaneous set
+    fired.add(bf.id);
     next = holdBattlefieldTrigger(next, "unitChosenBySpell", bf.id, chooserIndex, unitInstanceId);
   }
   return next;
@@ -1217,17 +1305,43 @@ export function holdUnitsChosenBySpell(
 /**
  * Reckoner's Arena — "activate the conquer effects of units here".
  *
- * ACTIVATE, not trigger: the units here have not conquered anything, so this is
- * the Arena causing their effects to happen. Each one's `resolve` is run
- * directly with a `battlefieldConquered` event naming this battlefield, which is
- * the event those abilities are written against.
+ * **383.4.g.1 is written about THIS CARD, by name, and it settles both readings
+ * this function used to take on its own reasoning.** The rule: "Some effects may
+ * instruct a player to 'activate' one of these named triggered abilities. To do
+ * so, that player checks the condition of all of the specified effects, as if
+ * they had fulfilled the named part of the condition." Its worked example is
+ * Reckoner's Arena verbatim — "For each unit at the battlefield, you will check
+ * the trigger condition of their conquer effects to see if the condition has been
+ * fulfilled, **treating the conquer portion of the condition as having been
+ * fulfilled**. If all of the conditions are fulfilled for a conquer effect, **it
+ * is placed on the chain as if it had just triggered**. If any of the non-conquer
+ * parts of the condition are not fulfilled, it will not be placed on the chain."
  *
- * Two consequences, both deliberate. The activated effects resolve INSIDE the
- * Arena's own resolution rather than becoming Pending Items of their own — the
- * Arena is one triggered ability and this is what it does, the same way a spell
- * that kills three units is one chain item. And a unit's `applies` is NOT
- * consulted: `applies` answers whether the ability triggered, and nothing here
- * triggered — the Arena is activating it regardless.
+ * So, corrected 2026-08-23:
+ *
+ * **(1) Each activated effect is its own Pending Item**, not a call made inside
+ * the Arena's resolution. "Placed on the chain as if it had just triggered" is
+ * the rule's own phrase, and it is what gives each one a response window and puts
+ * the group under 383.3.d's ordering question. The old note argued the Arena "is
+ * one triggered ability and this is what it does, the same way a spell that kills
+ * three units is one chain item" — a reasonable analogy, and not the one the
+ * rules drew.
+ *
+ * **(2) `applies` IS consulted**, which is the "non-conquer parts of the
+ * condition". The old note reasoned that "`applies` answers whether the ability
+ * triggered, and nothing here triggered"; the rule says the opposite in as many
+ * words. What is treated as satisfied is only the CONQUER half — supplied by
+ * handing each `applies` the same synthetic `battlefieldConquered` event the
+ * resolver gets, so a predicate asking "was it MY battlefield, and mine?" reads
+ * true while one asking anything else about the board is genuinely tested.
+ *
+ * The entries are built the way `triggers.holdEventTrigger` builds its own,
+ * including `capture` — an activated ability that snapshots the board must
+ * snapshot it at the moment it goes on the chain, not at the moment it pops.
+ * `listenerDefId` is the unit's defId rather than a granted key, because
+ * `eventTriggerFor` is keyed that way; a granted conquer effect is not activated
+ * by this card and is out of scope (nothing in the pool grants one to a unit that
+ * could be standing here at a hold).
  *
  * Only the HOLDER's units, and only those standing here. A held battlefield has
  * no enemy units on it by definition (`scoring.isHeldBy`), so the filter is a
@@ -1237,7 +1351,12 @@ export function holdUnitsChosenBySpell(
 function activateConquerEffectsHere(state: GameState, event: BattlefieldTriggerEvent): GameState {
   const bf = battlefieldOf(state, event);
   if (!bf) return state;
-  let next = state;
+  const conquered: GameEvent = {
+    kind: "battlefieldConquered",
+    conquerorIndex: event.playerIndex,
+    battlefieldId: bf.id,
+  };
+  const held: TriggerChainEntry[] = [];
   for (const unit of ownUnitsHere(state, event)) {
     const trigger = eventTriggerFor(unit.defId);
     if (trigger?.on !== "battlefieldConquered") continue;
@@ -1247,14 +1366,24 @@ function activateConquerEffectsHere(state: GameState, event: BattlefieldTriggerE
       battlefieldId: bf.id,
       zone: "board",
     };
-    next = trigger.resolve(
-      next,
-      listener,
-      { kind: "battlefieldConquered", conquerorIndex: event.playerIndex, battlefieldId: bf.id },
-      undefined,
-    );
+    // 383.4.g.1's "if any of the non-conquer parts of the condition are not
+    // fulfilled, it will not be placed on the chain".
+    if (trigger.applies && !trigger.applies(state, listener, conquered)) continue;
+    const captured = trigger.capture?.(state, listener, conquered);
+    held.push({
+      kind: "trigger",
+      playerIndex: event.playerIndex,
+      listenerInstanceId: unit.instanceId,
+      listenerDefId: unit.defId,
+      listenerName: unit.name,
+      listenerCard: unit,
+      battlefieldId: bf.id,
+      ...(captured !== undefined ? { captured } : {}),
+      event: conquered,
+    });
   }
-  return next;
+  if (held.length === 0) return state;
+  return { ...state, pendingTriggers: [...state.pendingTriggers, ...held] };
 }
 
 // ---------------------------------------------------------------------------
@@ -1573,18 +1702,53 @@ export const battlefieldDecisions: Record<string, DecisionDefinition> = {
 
   [`${NAVORI_FIGHTING_PIT}-buff`]: {
     prompt: () => "Navori Fighting Pit: buff a unit here",
-    options: (state, d) => {
-      const bf = state.battlefields.find((b) => b.id === d.battlefieldId);
-      return (bf?.units[state.players[d.playerIndex].id] ?? []).map((u) => ({
-        id: u.instanceId,
-        label: u.name,
-        instanceId: u.instanceId,
-      }));
-    },
+    /**
+     * **"A unit here" names no owner, so it means BOTH sides' units** — 355.9.b,
+     * whose examples make a targeting restriction come from the PRINT: a card's
+     * target qualifies for "enemy unit" or "unit you control" "only if it meets
+     * the appropriate criteria", and this card prints neither word.
+     *
+     * The same reading, through `unitsAt`, that Fortified Position's "choose a
+     * unit" already takes two entries up, and the same rule that settled Trifarian
+     * War Camp's and Windswept Hillock's "units here". This entry was the odd one
+     * out, restricted to the holder on the reasoning that "a held battlefield has
+     * no enemy units on it by definition (`scoring.isHeldBy`), so the filter is a
+     * statement of the card rather than a live distinction". The premise is right
+     * at the moment of the HOLD and this ability resolves a response window later,
+     * which is exactly when an enemy unit can have arrived — and with the holder's
+     * own units gone in that window, the narrowed version offers nothing and a
+     * MANDATORY buff silently does nothing. Corrected 2026-08-23.
+     */
+    options: (state, d) =>
+      unitsAt(state, d.battlefieldId).map(({ unit, ownerIndex }) => ({
+        id: unit.instanceId,
+        label: ownerIndex === d.playerIndex ? unit.name : `${unit.name} (theirs)`,
+        instanceId: unit.instanceId,
+      })),
     // `addBuff` is the funnel, not a field write: rule 702.3.a makes a second buff on
     // an already-buffed unit a no-op, and the `unitBuffed` event Mistfall watches
     // is fired from there.
     resolve: (state, _d, optionId) => addBuff(state, optionId),
+  },
+
+  /**
+   * Sigil of the Storm — "you must recycle one of your runes", chosen by the
+   * player at RESOLUTION per **355.10.f**, which quotes this card's sentence as
+   * its own worked example. See the trigger's note for why the printed "(This
+   * doesn't choose anything.)" is about TARGETING and not about selection.
+   *
+   * Labelled by DOMAIN and state, because that is the whole substance of the
+   * choice: which rune goes decides which domains the pool can still pay for.
+   * The id is the rune's, so two Fury runes are two distinct answers.
+   */
+  [`${SIGIL_OF_THE_STORM}-recycle`]: {
+    prompt: () => "Sigil of the Storm: recycle one of your runes",
+    options: (state, d) =>
+      state.players[d.playerIndex].channeled.map((r) => ({
+        id: r.id,
+        label: `${r.domain} (${r.state})`,
+      })),
+    resolve: (state, d, optionId) => recycleRuneToRuneDeck(state, d.playerIndex, optionId),
   },
 
   [`${STARTIPPED_PEAK}-channel`]: {
@@ -2013,6 +2177,10 @@ function updatePlayer(state: GameState, index: 0 | 1, update: (p: PlayerState) =
  * battlefield is placed last and resolves first under LIFO (340.1). Same choice,
  * and same reason, as the Legend's position in `listeningPermanents`: the
  * battlefield's printed effect is the frame the moment happens inside.
+ *
+ * A SEED order only — 383.3.d lets the controller reorder their own simultaneous
+ * triggers and this entry goes into that question with the rest. See this
+ * module's header.
  */
 export function holdBattlefieldTrigger(
   state: GameState,

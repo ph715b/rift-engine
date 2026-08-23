@@ -37,10 +37,26 @@ It is a NEW probe rather than a change to the pinned ones, deliberately: making
 `walkout` roll real battlefields would move 190/113/29 and making `reachability`
 do it would move every per-set figure.
 
-Pinned at **132 games, 64 in play, 36 of 38 triggered ones firing, 0 invalid**,
-with fired/triggered per set OGN 15/16, SFD 10/10, UNL 9/9, VEN 2/3. The two
-silent ones are conditional rather than broken and are named in the probe's own
-header; a THIRD name appearing there is the finding to chase.
+Pinned at **132 games, 64 in play, 35 of 38 triggered ones firing, 0 invalid**,
+with fired/triggered per set OGN 14/16, SFD 10/10, UNL 9/9, VEN 2/3. The silent
+ones are conditional rather than broken and are named in the probe's own header;
+a name appearing there that the header does not explain is the finding to chase.
+
+**It went 36 -> 35 and OGN 15/16 -> 14/16 on 2026-08-23, and the THIRD silent
+name is OGN-293 The Grand Plaza — which the probe is now RIGHT about.** "When you
+hold here, if you have 7+ units here, you win the game": 383.2.a.1 makes a
+conditional immediately after the Condition part of the Trigger Condition, so the
+count is asked at the hold and the ability does not trigger below 7. It used to
+place a Pending Item at every hold and find fewer than 7 at resolution — which
+this probe counted as FIRING, because placing a chain item is all it can see.
+
+Decomposed by CONTROL, same machine, rebuilt between runs: with `applies` forced
+true, **36 fired / 2 silent / 1012 chain items**; with the rule's reading,
+**35 / 3 / 995**. The whole 17-item delta is Grand Plaza items that used to do
+nothing, and nothing else moved. **So this probe cannot tell "fired" from "was
+placed and did nothing"** — the same blind spot in miniature that it exists to
+cover one level up, and worth knowing before reading a future drop here as a
+regression.
 
 **It earned its keep on the first run** - OGN-292 The Dreaming Tree had been
 implemented and hard-gated for the life of the engine with no behavioural test at
@@ -283,6 +299,42 @@ Measured against it, citations this repo had been carrying:
 | "each token is its own game object" | 714 in `effects/mind.ts` | **185.1** |
 | "a battlefield already scored this turn is not held again" | **471.1.b** in `triggers.ts` — which is the FINAL POINT's restrictions | **470** ("A player may only Score, from either method, once per Battlefield per turn") |
 | "a check on something no longer available returns null" | a bare 359.3 | **359.3.e.12** |
+
+## Grep the rules for the CARD NAME before reasoning about a card
+
+**The PDF names 100 cards from this pool by name, in worked examples, and this
+repo had never used that.** Everything above is about verifying a citation you
+already have; this is how to FIND the sentence, and it is faster and far more
+certain than reading a rule and arguing about whether it reaches your card:
+
+```bash
+pdftotext -q -raw "docs/Riftbound Core Rules Updated 2026-07-16.pdf" - | grep -n -B3 -A8 "Reckoner's Arena"
+```
+
+Six of the seven findings in the 2026-08-23 battlefield sweep came out of a rule
+that named the card. Each one had a carefully-reasoned comment in the code taking
+the opposite view, and each of those comments was plausible:
+
+| card | rule that names it | what the engine had reasoned instead |
+|---|---|---|
+| Reckoner's Arena | **383.4.g.1** — an activated conquer effect "is placed on the chain as if it had just triggered", and non-conquer conditions ARE checked | "the Arena is one triggered ability… the same way a spell that kills three units is one chain item", and "nothing here triggered, so there is no trigger condition to test" |
+| Sigil of the Storm | **355.10.f** quotes its sentence verbatim — "'You must recycle one of your runes' doesn't target anything. **You choose from among your runes as the spell or ability resolves**" | the printed "(This doesn't choose anything.)" meant no selection, so pool order |
+| Void Gate | **715.4.a** — bonus damage is in the total before Prevent | correct, but justified as "structural rather than chosen" |
+| Targon's Peak | **355.5.b** — choices are made when the delayed trigger finalizes | `readyRunes` picks in pool order and calls it a non-decision |
+| Navori Fighting Pit | **438.1.a** — a player orders a Legend's conquer effect against the battlefield's | "this engine fixes the order", which had stopped being true |
+| Wraith of Echoes | **383.1.b** — "that ability hasn't triggered yet this turn", and simultaneous instances "trigger only once" | cited AS the precedent for the opposite reading, on The Dreaming Tree |
+
+**Two of the brief's blocked divergences are on that list.** `Last Stand`
+(432.1's worked example) was already known; **`Smoke and Mirrors` is answered
+outright by 811.1.d.2.a**, which names it and rules that the second unit "can be
+chosen from any location" — so the rules half of that row is settled and only the
+`unitSlots` field is still missing.
+
+The full list is worth regenerating rather than transcribing — match every
+`name` in `src/cards/*.json` against the `-raw` dump. Cards on it with open
+readings today include Deathgrip, Hidden Blade, Eager Apprentice, Sky Splitter,
+Ezreal - Prodigy, Sona - Harmonious, Baron Nashor, Baited Hook, Promising Future,
+Immortal Phoenix, Hostile Takeover, Counter Strike, Lotus Trap and Time Warp.
 
 The current PDF is downloadable from Riot's CDN — the project owner supplied
 `https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/e9ac8e3d33e0f78cef296f5945aba7bc1313b086.pdf`.

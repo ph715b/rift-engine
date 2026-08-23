@@ -105,17 +105,54 @@ describe("Sigil of the Storm (OGN-287): recycle one of your runes", () => {
     expect(settled.players[0]!.runeDeck[1]!.state, "an exhausted rune recycled exhausted").toBe("Ready");
   });
 
-  it("asks nothing — '(This doesn't choose anything.)'", () => {
+  /**
+   * **INVERTED 2026-08-23 by the unverified-row sweep.** This block used to read
+   * "asks nothing — '(This doesn't choose anything.)'" and pinned the pool-order
+   * `channeled[0]`, on the reading that the parenthesis was the card saying no
+   * selection is made.
+   *
+   * **355.10.f quotes this card's sentence verbatim as its own worked example**,
+   * and answers it: *"'You must recycle one of your runes' doesn't target
+   * anything. You choose from among your runes as the spell or ability
+   * resolves."* The parenthesis is about TARGETING — it is why no Deflect
+   * surcharge and no targeting restriction apply — not about who picks.
+   *
+   * The old row already recorded why it mattered: "which rune goes still decides
+   * which DOMAINS remain".
+   */
+  it("ASKS which rune, at resolution (355.10.f)", () => {
     const state = withBattlefield(SIGIL_OF_THE_STORM);
     state.players[0]!.channeled = [rune("a"), rune("b")];
     const settled = resolveHeldTriggers(recordConquest(state, 0, "bf1"));
-    expect(settled.pendingDecisions, "the Sigil stopped to ask").toHaveLength(0);
+    expect(settled.pendingDecisions).toHaveLength(1);
+    expect(optionsFor(settled, settled.pendingDecisions[0]!).map((o) => o.id)).toEqual(["a", "b"]);
+  });
+
+  it("...and the answer is real — naming the second rune recycles the second", () => {
+    // The control the test above needs: a question whose answer is ignored would
+    // pass it, and the old pool-order code would answer "a" every time.
+    const state = withBattlefield(SIGIL_OF_THE_STORM);
+    state.players[0]!.channeled = [rune("a"), rune("b")];
+    const settled = answerDecisions(resolveHeldTriggers(recordConquest(state, 0, "bf1")), (options) => {
+      return options.find((o) => o.id === "b")!.id;
+    });
+    expect(settled.players[0]!.channeled.map((r) => r.id)).toEqual(["a"]);
+    expect(settled.players[0]!.runeDeck.map((r) => r.id)).toEqual(["b"]);
+  });
+
+  it("one rune in the pool is not a question", () => {
+    const state = withBattlefield(SIGIL_OF_THE_STORM);
+    state.players[0]!.channeled = [rune("a")];
+    const settled = settleConquest(state);
+    expect(settled.pendingDecisions).toHaveLength(0);
+    expect(settled.players[0]!.channeled).toHaveLength(0);
   });
 
   it("is a safe no-op with an empty pool", () => {
     const state = withBattlefield(SIGIL_OF_THE_STORM);
     state.players[0]!.channeled = [];
     expect(() => settleConquest(state)).not.toThrow();
+    expect(settleConquest(state).pendingDecisions, "an empty pool was asked a question").toHaveLength(0);
   });
 });
 

@@ -73,11 +73,39 @@ describe("Obelisk of Power (OGN-284): each player channels 1 on their first Begi
     expect(after.players[0]!.channeled).toHaveLength(0);
   });
 
-  it("resolves INLINE rather than on the chain", () => {
-    // The deliberate exception the whole `beginningPhase` family is: holding it
-    // would put it after `scoreHolds`.
+  /**
+   * **PINNED DIVERGENCE, relabelled 2026-08-23 by the unverified-row sweep.**
+   * This block already asserted inline resolution; what it recorded was the
+   * EXCUSE ("holding it would put it after `scoreHolds`") rather than the gap.
+   *
+   * "At the start of each player's first Beginning Phase…" is a Triggered
+   * Ability by **383.1** ("the word 'at' followed by a point in time during the
+   * turn sequence"), and **383.3** puts one on the Chain: "When a Condition is
+   * met, a Triggered Ability behaves like an Activated Ability and is placed on
+   * the Chain." Resolving inline skips the response window the rules give.
+   *
+   * **The excuse is an artefact of this engine, not a constraint from the
+   * rules**, and that is the sentence worth leaving here. **315.2** splits the
+   * phase in two: "**315.2.a. Beginning Step** — 315.2.a.1. At the start of
+   * Beginning Phase game effects take place" and "**315.2.b. Scoring Step** —
+   * 315.2.b.2. The Turn Player Holds all Battlefields they Control." So the
+   * rules already put these abilities in an earlier STEP than the hold, and a
+   * chain settled between the two steps lands the point in the right phase.
+   * `runBeginning` collapses both steps into one call that returns at `phase:
+   * "Channel"`, which is why there is nowhere to settle a chain today.
+   *
+   * Fixing it means splitting `runBeginning` and settling the chain between the
+   * steps — a turn-pipeline change reaching `submit` and the AI's settle loop,
+   * and it would move probe figures. Left for its own scoped pass. Affects
+   * Obelisk of Power, The Arena's Greatest, Dr. Mundo, Mushroom Pouch and Jinx -
+   * Loose Cannon's Legend. **INVERT this when it is fixed, do not delete it.**
+   */
+  it("resolves INLINE rather than on the chain (divergent — 383.3, pinned)", () => {
     const held = runBeginning(beginning(OBELISK_OF_POWER, 1));
-    expect(held.players[0]!.channeled, "the Obelisk waited for a response window").toHaveLength(1);
+    expect(
+      held.players[0]!.channeled,
+      "DIVERGENCE CLOSED — the Obelisk now waits for a response window; invert this pin",
+    ).toHaveLength(1);
     expect(held.pendingTriggers.filter((e) => e.source === "battlefield")).toHaveLength(0);
   });
 });

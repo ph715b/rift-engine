@@ -1,10 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { runBeginning } from "../src/engine/turn-manager.js";
+import { runCleanup } from "../src/engine/cleanup.js";
+import { executePassFocus } from "../src/actions/execute-pass-focus.js";
 import { winner } from "../src/engine/win-condition.js";
 import { battlefieldDefIdFor } from "../src/decks/battlefield-setup.js";
-import type { GameState } from "../src/model/game-state.js";
+import { isSpellChainEntry } from "../src/model/game-state.js";
+import type { GameState, TriggerChainEntry } from "../src/model/game-state.js";
 import type { UnitInstance } from "../src/model/card.js";
-import { answerDecisions, makeState, makeUnit, realUnitInstance, resolveHeldTriggers } from "./fixtures.js";
+import {
+  answerDecisions,
+  keepTriggerOrder,
+  makeState,
+  makeUnit,
+  realUnitInstance,
+  resolveHeldTriggers,
+} from "./fixtures.js";
 
 /**
  * The seven "when you hold here" battlefields.
@@ -33,6 +43,10 @@ const THE_GRAND_PLAZA = "OGN-293";
 /** Sett - Brawler — "when I conquer, buff me", the conquer effect Reckoner's
  *  Arena activates without a conquest. */
 const SETT_BRAWLER = "OGN-164";
+/** Yeti Brawler — "when I conquer, IF you assigned 3 or more excess damage…".
+ *  383.4.g.1's "non-conquer parts of the condition", on a card whose extra part
+ *  is false at a hold by construction: no combat has happened. */
+const YETI_BRAWLER = "UNL-018";
 
 /** A Ready rune for the rune DECK — The Papertree channels from there. */
 const rune = (id: string) => ({ id, domain: "Calm" as const, state: "Ready" as const });
@@ -56,6 +70,30 @@ function holding(defId: string, units: UnitInstance[] = [makeUnit()]): GameState
  *  on, then whatever question the ability parked. */
 function settleHold(state: GameState): GameState {
   return answerDecisions(resolveHeldTriggers(runBeginning(state)));
+}
+
+/**
+ * Steps the chain just far enough for the BATTLEFIELD's own item to resolve, and
+ * reports what it put on the chain behind it.
+ *
+ * Needed only by Reckoner's Arena, and only because of what 383.4.g.1 changed:
+ * "placed on the chain as if it had just triggered" is observably different from
+ * "run inside the Arena's resolution" for exactly one step of the chain, and
+ * `settleHold` runs straight past it. Stopping here is the whole assertion.
+ */
+function settleArena(held: GameState): { state: GameState; activated: TriggerChainEntry[] } {
+  const arenaOnChain = (s: GameState) =>
+    s.spellChain.some((e) => !isSpellChainEntry(e) && e.source === "battlefield");
+  let current = keepTriggerOrder(runCleanup(held));
+  for (let guard = 0; guard < 8 && arenaOnChain(current); guard += 1) {
+    current = keepTriggerOrder(
+      runCleanup(executePassFocus(current, { type: "PassFocus", playerIndex: current.chainPriority })),
+    );
+  }
+  const activated = current.spellChain.filter(
+    (e): e is TriggerChainEntry => !isSpellChainEntry(e) && e.source !== "battlefield",
+  );
+  return { state: current, activated };
 }
 
 describe("the battlefield card is what carries the ability", () => {
@@ -179,7 +217,7 @@ describe("Navori Fighting Pit (OGN-283): buff a unit here", () => {
     expect(settled.battlefields[0]!.units["p1"]![0]!.buffed).toBe(true);
   });
 
-  it("offers each of the holder's units there, and only those", () => {
+  it("offers each unit standing HERE, and only those", () => {
     const mine = [makeUnit({ name: "A" }), makeUnit({ name: "B" })];
     const state = holding(NAVORI_FIGHTING_PIT, mine);
     // A unit of the holder's standing somewhere ELSE is not "here".
@@ -192,6 +230,35 @@ describe("Navori Fighting Pit (OGN-283): buff a unit here", () => {
     expect(here.find((u) => u.name === "B")!.buffed).toBe(true);
     expect(here.find((u) => u.name === "A")!.buffed).toBe(false);
     expect(settled.players[0]!.baseUnits[0]!.buffed).toBe(false);
+  });
+
+  /**
+   * **355.9.b — "a unit here" prints no owner, so it imposes none.** The engine
+   * offered only the HOLDER's units until 2026-08-23, excused as "a held
+   * battlefield has no enemy units on it by definition, so the filter is a
+   * statement of the card rather than a live distinction". That premise is about
+   * the moment of the HOLD; the ability resolves a response window later, and an
+   * enemy unit arriving in that window is where the two readings come apart.
+   *
+   * The fixture inserts the arrival directly rather than casting something that
+   * moves a unit, because the assertion is about the OPTIONS the resolution
+   * builds — routing it through a real spell would test that spell instead.
+   */
+  it("offers an ENEMY unit that arrived while the ability waited (355.9.b)", () => {
+    const state = holding(NAVORI_FIGHTING_PIT, [makeUnit({ name: "Mine" })]);
+    const held = runBeginning(state);
+    const gatecrashed: GameState = {
+      ...held,
+      battlefields: held.battlefields.map((bf) =>
+        bf.id === "bf1" ? { ...bf, units: { ...bf.units, p2: [makeUnit({ name: "Theirs" })] } } : bf,
+      ),
+    };
+    let offered: string[] = [];
+    answerDecisions(resolveHeldTriggers(gatecrashed), (options) => {
+      offered = options.map((o) => o.label);
+      return options[0]!.id;
+    });
+    expect(offered.sort()).toEqual(["Mine", "Theirs (theirs)"]);
   });
 });
 
@@ -237,6 +304,52 @@ describe("Reckoner's Arena (OGN-286): activate the conquer effects of units here
     const settled = settleHold(holding(RECKONERS_ARENA, [makeUnit()]));
     expect(settled.battlefields[0]!.units["p1"]![0]!.buffed).toBe(false);
   });
+
+  /**
+   * **383.4.g.1 is written about this card by name**, and until 2026-08-23 the
+   * engine took the opposite reading on both halves of it, on its own reasoning
+   * rather than on the rule. The rule's worked example: "For each unit at the
+   * battlefield, you will check the trigger condition of their conquer effects to
+   * see if the condition has been fulfilled, treating the conquer portion of the
+   * condition as having been fulfilled. If all of the conditions are fulfilled for
+   * a conquer effect, **it is placed on the chain as if it had just triggered**.
+   * **If any of the non-conquer parts of the condition are not fulfilled, it will
+   * not be placed on the chain.**"
+   *
+   * The three tests above pass under BOTH readings — running the effect inline
+   * and placing it on the chain end at the same board — which is why the change
+   * needed its own assertions on the PEN.
+   */
+  it("places each activated effect on the CHAIN, not inside its own resolution", () => {
+    const held = runBeginning(holding(RECKONERS_ARENA, [realUnitInstance(SETT_BRAWLER)]));
+    // The Arena itself, and nothing of Sett's yet: his effect is activated when
+    // the Arena RESOLVES, which is a chain item later.
+    expect(held.pendingTriggers.filter((e) => e.source === "battlefield")).toHaveLength(1);
+    expect(held.pendingTriggers.some((e) => e.listenerDefId === SETT_BRAWLER)).toBe(false);
+    // Settle the Arena's own item, then look for Sett's as a separate item — and
+    // assert the buff has NOT landed yet, which is what separates "placed on the
+    // chain" from "run inline".
+    const armed = settleArena(held);
+    expect(armed.state.spellChain.some((e) => !isSpellChainEntry(e) && e.listenerDefId === SETT_BRAWLER)).toBe(true);
+    expect(armed.state.battlefields[0]!.units["p1"]![0]!.buffed, "the buff landed inside the Arena's own resolution").toBe(
+      false,
+    );
+  });
+
+  it("does NOT place one whose non-conquer condition is unfulfilled (383.4.g.1)", () => {
+    // Yeti Brawler — "When I conquer, IF you assigned 3 or more excess damage,
+    // play two Gold gear tokens exhausted." The `if` sits immediately after the
+    // Condition, so 383.2.a.1 makes it part of the Condition, and no combat has
+    // happened at all: nothing was assigned, so it must not reach the chain.
+    //
+    // Paired with the Sett line below rather than asserted alone, because "no
+    // Gold tokens" is also what an Arena that had stopped activating ANYTHING
+    // produces — the contrast is what makes this about the condition.
+    const yeti = settleArena(runBeginning(holding(RECKONERS_ARENA, [realUnitInstance(YETI_BRAWLER)])));
+    expect(yeti.activated).toHaveLength(0);
+    const sett = settleArena(runBeginning(holding(RECKONERS_ARENA, [realUnitInstance(SETT_BRAWLER)])));
+    expect(sett.activated.map((e) => e.listenerDefId), "the Arena activated nothing at all").toEqual([SETT_BRAWLER]);
+  });
 });
 
 describe("The Grand Plaza (OGN-293): 7+ units here wins the game", () => {
@@ -253,9 +366,36 @@ describe("The Grand Plaza (OGN-293): 7+ units here wins the game", () => {
     expect(winner(settled)).toBeNull();
   });
 
-  it("counts at RESOLUTION, so the seventh unit can be answered", () => {
-    // The response window is real: the ability is on the chain, and killing a
-    // unit standing there before it resolves means there is no longer a 7.
+  it("does not even TRIGGER on 6 — the count is part of the Condition (383.2.a.1)", () => {
+    // Asserted on the PEN, because that is the only thing that can tell "never
+    // triggered" from "triggered and found nothing" — the same reason the
+    // Grove's test above reads `pendingTriggers` rather than the board.
+    const held = runBeginning(holding(THE_GRAND_PLAZA, seven().slice(0, 6)));
+    expect(held.pendingTriggers.filter((e) => e.source === "battlefield")).toHaveLength(0);
+  });
+
+  /**
+   * **INVERTED 2026-08-23 by the unverified-row sweep.** This block used to read
+   * "counts at RESOLUTION, so the seventh unit can be answered", and pinned the
+   * opposite of what it now asserts. Its reasoning was a BALANCE argument — "a
+   * win the opponent could no longer prevent by removing the seventh unit would
+   * be a stronger card than the one printed" — made against a rule nobody had
+   * read.
+   *
+   * **383.2.a.1** reads it the other way: "Any additional conditional statement
+   * immediately after the Condition must be true in order for the Condition to be
+   * fulfilled. Such a conditional statement is part of the Trigger Condition and
+   * not the Effect." The Plaza's `if` sits immediately after "when you hold here",
+   * so the count is asked at the hold. The rule's own Sona - Harmonious example
+   * then supplies the consequence in as many words: "If she is removed in reaction
+   * to the triggered ability, it will still resolve."
+   *
+   * Kept and pointed the other way rather than deleted, because this is exactly
+   * the negative the skill warns about: an ability that quietly went back to
+   * re-counting at resolution would just make a won game not-won, and nothing
+   * else here would notice.
+   */
+  it("cannot be answered — a seventh unit killed in the window does NOT stop the win", () => {
     const held = runBeginning(holding(THE_GRAND_PLAZA, seven()));
     const oneFewer: GameState = {
       ...held,
@@ -263,7 +403,8 @@ describe("The Grand Plaza (OGN-293): 7+ units here wins the game", () => {
         bf.id === "bf1" ? { ...bf, units: { p1: (bf.units["p1"] ?? []).slice(1) } } : bf,
       ),
     };
-    expect(winner(resolveHeldTriggers(oneFewer))).toBeNull();
+    expect(oneFewer.battlefields[0]!.units["p1"], "the fixture must really have removed one").toHaveLength(6);
+    expect(winner(resolveHeldTriggers(oneFewer))).toBe(0);
   });
 });
 
