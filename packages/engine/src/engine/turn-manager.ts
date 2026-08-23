@@ -134,7 +134,7 @@ export function runAwaken(state: GameState): GameState {
  * makes giving an enemy unit [Temporary] (Fading Memories) a delayed removal
  * rather than an instant one.
  *
- * Multiple instances are redundant (817.1.a), which is free here: the keyword is
+ * Multiple instances are redundant (816.2, Temporary's own rule), which is free here: the keyword is
  * a presence check, not a count.
  */
 /** LeBlanc - Everywhere At Once — "your [Temporary] effects at my battlefield

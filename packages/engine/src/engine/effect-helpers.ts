@@ -1760,7 +1760,7 @@ export function grantTriggerThisTurn(state: GameState, targetInstanceId: string,
  * action list, which is not a second use — the ability has no exhaust and can
  * already be paid for as many times as the Power lasts, so a duplicate entry
  * would be a phantom action that does exactly what the first one does. Contrast
- * `grantKeywordThisTurn`, where a second source genuinely SUMS (807.2/817).
+ * `grantKeywordThisTurn`, where a second source genuinely SUMS (807.2/809.2/814.2/823.2).
  *
  * A unit that has left the board is a silent no-op — the target-vanished
  * convention every helper here follows.

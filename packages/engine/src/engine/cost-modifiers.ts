@@ -306,7 +306,7 @@ const SPOILS_OF_WAR_DISCOUNT = 2;
  * exists to prevent.
  *
  * **Two Heralds stack, to -4.** Continuous abilities are not keywords, so
- * 817.1.a's redundancy rule does not reach them; the precedent in this codebase
+ * 801.3.a.1 defers redundancy to each keyword's own rule and none reaches them; the precedent in this codebase
  * is effective-might's Garen - Commander and Darius - Executioner, which
  * explicitly stack when both are present. The floor is per-card and applies once,
  * after the whole reduction.
@@ -881,7 +881,7 @@ const PLAY_FROM_ELSEWHERE_DISCOUNT = 2;
  *
  * **Two Vexes, one per side, cancel.** Counted as a signed swing rather than a
  * boolean for that reason: nothing in the rules makes her ability redundant with
- * an opponent's copy, and 817.1.a's redundancy rule reaches keywords, not
+ * an opponent's copy, and per-keyword redundancy (801.3.a.1) reaches keywords, not
  * continuous abilities — the same reading `heraldCount` takes for two Heralds
  * stacking.
  *
@@ -921,7 +921,7 @@ const VEX_FRIENDLY_ENERGY_FLOOR = 1;
  *   unpositioned auras take.
  *
  * COUNTED rather than boolean, on Vex's own reasoning: nothing in the rules makes
- * a second copy redundant (817.1.a's redundancy rule reaches keywords, not
+ * a second copy redundant (per-keyword redundancy, 801.3.a.1, reaches keywords, not
  * continuous abilities), so two Empowered Researchers discount twice.
  */
 const APPLIED_RESEARCHERS = "VEN-055";

@@ -532,7 +532,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     //
     // **Repeating it is usually pointless and legal anyway.** Stunning is a flag,
     // not a counter (`stunUnits` sets `stunned`), so a second stun on the same
-    // unit changes nothing — the same redundancy 817.1.a gives Blood Rush's
+    // unit changes nothing — the same per-keyword redundancy (801.3.a.1) gives Blood Rush's
     // keyword. It earns its Repeat cost only by naming a DIFFERENT attacker the
     // second time, which 820.1.d expressly allows.
     targeting: { kind: "unit", attackingOnly: true },
@@ -548,7 +548,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     //
     // Repeating this STACKS: +2 Might twice is +4, because `mightThisTurn`
     // accumulates. That is the opposite of what repeating Blood Rush does, and
-    // the difference is 817.1.a — a KEYWORD's duplicate instances are redundant,
+    // the difference is 801.3.a.1 — a KEYWORD's duplicate instances are redundant when its own rule says so,
     // a numeric Might modifier is not a keyword and simply adds.
     targeting: { kind: "unit", scope: "anywhere" },
     resolve: (state, _ctx, event) =>
@@ -863,10 +863,34 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // Duel takes for "damage equal to their Mights" and Stupefy takes for its
     // minimum-1 floor.
     //
-    // `isCombat: false`, so `[Assault]`/`[Shield]` do not count. Those are
-    // "while I'm attacking/defending" bonuses (817), i.e. properties of a fight
-    // rather than of the unit, and this spell can be cast outside one — the same
-    // reason rule 708's `isMighty` is asked with isCombat false.
+    // **`isCombat: false`, so `[Assault]`/`[Shield]` do not count — and that is a
+    // DIVERGENCE, recorded 2026-08-23 by the unverified-row sweep.**
+    //
+    // The justification here used to read: those are "while I'm
+    // attacking/defending" bonuses **(817)**, i.e. properties of a fight rather
+    // than of the unit. Both halves are wrong. **817 is Vision.** Assault is
+    // **807.1.c** and Shield is **814.1.c**, and each reads "It is functionally
+    // short for 'While I am an attacker/defender, I have **+X [M]**'" — they ARE
+    // Might while the designation holds. Fortified Position's own reminder text
+    // says the same from the card side: "(+2 [M] while it's a defender)".
+    //
+    // **432.1's worked example works THIS CARD by name and gives the opposite
+    // answer**: "A unit with 3 base Might and Shield 2 is in combat as a
+    // Defender. Since Shield applies, its current Might is 5. A player chooses it
+    // as the target for Last Stand… it gets +5 Might this turn, for a current
+    // Might of 10. After combat, Shield no longer applies, but the +5 Might from
+    // Last Stand does, so the unit's Might is 8."
+    //
+    // Left as-is for now rather than half-fixed: `coverage.ts` records that the
+    // unbounded `effectiveMight` cycle is genuine at `isCombat: true`
+    // (`effectiveKeywords` -> a Might-dependent grant -> `isMighty` -> the
+    // outgoing role -> back in), which is the cycle `excludeMightDependentGrants`
+    // exists to break. It is a real change with a probe run attached, not a flag
+    // flip. See docs/rules-conformance.md.
+    //
+    // Note the sibling readings differ: Stormbringer is conformant BY
+    // CONSTRUCTION (its target is "a friendly unit in your base", which can never
+    // hold either designation), and Yasuo - Remorseful is still open.
     //
     // Doubling is a SNAPSHOT: `+M this turn` on a unit currently at M. A later
     // buff therefore lands on top rather than being doubled too, which is what
@@ -2882,7 +2906,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     //
     // Only the sentence. `[Shield]` is printed and real (effective-might reads it
     // for the defending side), and re-granting it here would be the double-pay
-    // 817's summing makes observable.
+    // the per-keyword summing (807.2/809.2/814.2/823.2) makes observable.
     //
     // **His `[Temporary]` is the TOKEN's, not his**, and that distinction is
     // already load-bearing in the loader: `card-loader.GRANTED_ONLY_KEYWORDS` has

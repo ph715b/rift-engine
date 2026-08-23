@@ -1678,7 +1678,7 @@ export interface GameState {
    * the turn, and every helper that rebuilds a unit would otherwise have to
    * remember to carry it.
    *
-   * **Two barriers on one unit SUM rather than queue.** 817's summing is about
+   * **Two barriers on one unit SUM rather than queue.** The per-keyword summing (807.2/809.2/814.2/823.2) is about
    * keywords and does not reach this, but nothing in the text makes them separate
    * shields either, and a queue would be observably different only in which one
    * empties first — which nothing can see. Recorded Unverified.

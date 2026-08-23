@@ -1512,7 +1512,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     //
     // **All three keywords are also PRINTED on his frame**, which looks like a
     // conflict and is the card: he has them permanently, and this clause adds
-    // ANOTHER instance for the turn. **817 makes valued keywords SUM**, so
+    // ANOTHER instance for the turn. **807.2/809.2/814.2/823.2 make the four valued keywords SUM**, so
     // choosing `[Assault 2]` puts him at 4 while attacking — the same rule Baccai
     // Reaper's entry records, and the reason the grant goes through
     // `grantKeywordThisTurn` rather than being reasoned about here.
@@ -2761,7 +2761,7 @@ export const decisions: Record<string, DecisionDefinition> = {
    * Jayce, Hammer in Hand's "choose one to give me this turn".
    *
    * No decline — "choose one" is not "you may". The grant routes through
-   * `grantKeywordThisTurn` with the printed VALUE, so 817's summing against the
+   * `grantKeywordThisTurn` with the printed VALUE, so the per-keyword summing against the
    * same keyword on his frame happens in the one place that implements it.
    */
   [JAYCE_HAMMER_CHOICE]: {

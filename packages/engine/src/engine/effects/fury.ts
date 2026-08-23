@@ -154,7 +154,7 @@ const ENDLESS_RICHES_BURN = 7;
 
 const BACCAI_REAPER_PUMP = "VEN-009-assault";
 /** Baccai Reaper's granted `[Assault 2]`. Printed on his frame AND granted by
- *  the clause, and 817 makes the two SUM — see the card's entry. */
+ *  the clause, and 807.2 makes the two SUM — see the card's entry. */
 const BACCAI_REAPER_ASSAULT = 2;
 /** Renekton, Rage Fueled's rune CEILING — "4 or fewer", so the test is `>` this
  *  number to bail. Shared reading with Eclipse Dragon's, and kept as two
@@ -319,7 +319,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // is not `[Assault]`, and the default of 1 would have been a silently weaker
     // card that no type error could catch — `mergeGrantedKeyword` takes the
     // higher of what is there, so a unit that already has `[Assault 2]` goes to 3
-    // rather than to 5 (817's summing is for VALUED keywords from separate
+    // rather than to 5 (the per-keyword summing is for the four VALUED keywords from separate
     // grants; see `keyword-stacking`).
     targeting: { kind: "unit", scope: "anywhere" },
     resolve: (state, _ctx, event) => {
@@ -1880,17 +1880,17 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // exist as separate names so a card that deliberately ignores the designation
     // says so, and copying Draven wholesale would have quietly widened this one.
     //
-    // # The grant STACKS with his printed [Assault 2], and 817 is why
+    // # The grant STACKS with his printed [Assault 2], and 807.2 is why
     //
     // He prints `[Assault 2]` and the clause gives `[Assault 2]` — the same
-    // keyword, from a separate source, with a value. **817 makes valued keywords
+    // keyword, from a separate source, with a value. **807.2 makes Assault
     // SUM**, which is the rule a playtest found this engine getting wrong two
     // sets ago, so a paid Reaper attacks at +4 rather than +2.
     //
     // That is `grantKeywordThisTurn`'s job and not this resolver's: it routes
     // through `mergeGrantedKeyword`, which is the single place the printed value
     // and a this-turn grant are combined. Adding the numbers here would be a
-    // second implementation of 817 that could disagree with the first.
+    // second implementation of 807.2 that could disagree with the first.
     //
     // "You MAY pay" is a cost, so this parks a question rather than firing —
     // 416.3 means it is not even asked when the Fury cannot be paid, and 402.1
@@ -3408,7 +3408,7 @@ export const decisions: Record<string, DecisionDefinition> = {
    * `advanceDecisions` executes without prompting. 416.3: a cost that cannot be
    * completed is not one you may choose to pay.
    *
-   * `grantKeywordThisTurn` is what applies 817's summing against his printed
+   * `grantKeywordThisTurn` is what applies 807.2's summing against his printed
    * `[Assault 2]`; this resolver deliberately does no arithmetic of its own.
    */
   [BACCAI_REAPER_PUMP]: {

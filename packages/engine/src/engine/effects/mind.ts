@@ -952,7 +952,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // "which gear is the first target"). A gear killed in the response window makes
     // this do nothing, per 359.3.e.
     //
-    // Re-granting is harmless (817.1.a, and `grantTemporary` says so), so no guard
+    // Re-granting is harmless (816.2, Temporary's own rule, and `grantTemporary` says so), so no guard
     // is needed for a gear that is already Temporary.
     targeting: { kind: "gear" },
     resolve: (state, _ctx, event) =>
