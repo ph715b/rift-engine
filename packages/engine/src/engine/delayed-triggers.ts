@@ -34,7 +34,7 @@ function updatePlayer(state: GameState, index: 0 | 1, update: (p: PlayerState) =
  * Every other source names a card that the resolver looks up. This one names one
  * only so the chain viewer can say what is waiting; nothing is looked up, and the
  * ability resolves off `PlayerState.banishedUntilHold`. That is the extreme of
- * the rule the non-`event` sources already share (809.1.b — the ability's source
+ * the rule the non-`event` sources already share (383.3 / 377.3.a.1 — the ability's source
  * having left play does not remove the item): here the source having left is not
  * an edge case to survive, it is the printed behaviour.
  */

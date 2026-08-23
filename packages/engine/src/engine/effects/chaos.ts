@@ -2008,7 +2008,7 @@ export const deathTriggers: Record<string, DeathknellDefinition> = {
   // Kog'Maw - Caustic — "[Deathknell] Deal 4 to all units at my battlefield."
   //
   // The card triggers.ts's DeathContext doc comment names as the reason
-  // `battlefieldId` is captured before the corpse reaches the trash (809.1.b.3):
+  // `battlefieldId` is captured before the corpse reaches the trash (383.3 / 377.3.a.1):
   // by the time this runs, asking the board where Kog'Maw is would find him in a
   // trash and "my battlefield" would have no answer.
   //
@@ -2072,7 +2072,7 @@ export const deathWatchTriggers: Record<string, DeathWatchDefinition> = {
     // dies still has him in `death.unit`, so the comparison is available.
     //
     // Both conditions are facts about the DEATH — captured before the corpse
-    // reached the trash (809.1.b.3) — so both settle at fire time, and the
+    // reached the trash (383.3 / 377.3.a.1) — so both settle at fire time, and the
     // response window a held trigger opens cannot change either. That is the
     // split `DeathWatchDefinition.applies` exists to make.
     //

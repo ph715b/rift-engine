@@ -3154,7 +3154,7 @@ export const decisions: Record<string, DecisionDefinition> = {
   //
   // The BUFF is not, and the asymmetry is deliberate: the Captain is the thing
   // being buffed, an on-play trigger resolves even though its source has left
-  // play (809.1.b), and a buff aimed at a card already in the trash would be an
+  // play (383.3 / 377.3.a.1), and a buff aimed at a card already in the trash would be an
   // option that visibly does nothing. 359.3 — the check returns null and the
   // calculation drops out.
   "SFD-091-choose": {

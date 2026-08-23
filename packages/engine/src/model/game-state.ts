@@ -370,7 +370,7 @@ export interface TriggerChainEntry {
    * every producer wrote before on-play triggers were held.
    *
    * **Every non-`event` source shares a rule the event one does not**: the ability
-   * resolves even though its source has left play (809.1.b), because the card IS
+   * resolves even though its source has left play (383.3 / 377.3.a.1), because the card IS
    * the ability's source rather than a bystander watching. An event-registry
    * listener is the bystander, and bails. See `resolveHeldOnPlayTrigger`.
    *

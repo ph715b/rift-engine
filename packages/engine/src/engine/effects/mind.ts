@@ -4386,7 +4386,7 @@ export const decisions: Record<string, DecisionDefinition> = {
    * `cardInstanceId` is BUBBLE BOT herself, captured when the question was
    * raised, and it is what "another" is measured against. Captured rather than
    * re-derived because by the time the answer arrives she may have been killed in
-   * the response window — 809.1.b makes the ability independent of its source, so
+   * the response window — 383.3 with 377.3.a.1 makes the ability independent of its source, so
    * the Mech is still readied, and an exclusion that could not name her would
    * quietly become an exclusion of nobody.
    *
@@ -4503,7 +4503,7 @@ export const decisions: Record<string, DecisionDefinition> = {
    *
    * The damage is dealt BY the Rex's controller, so a damage modifier on that side
    * (Annie - Fiery's +1) applies. A Deathknell resolving for a player whose unit
-   * has already left the board is 809.1.b working as printed: the ability is
+   * has already left the board is 383.3 / 377.3.a.1 working as printed: the ability is
    * independent of the card that made it.
    */
   "UNL-067-shot": {

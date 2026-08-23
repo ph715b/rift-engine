@@ -693,7 +693,7 @@ export function dispatchOnPlayUnit(
   // file validated, cost runes, deployed — and then its ability silently never
   // ran. Nothing caught it because no per-domain file had registered a Unit yet,
   // which is exactly when a per-card implementation pass would have hit it.
-  // ── HELD, not resolved (383 / 809.1.b.3) ────────────────────────────────
+  // ── HELD, not resolved (383.3 / 377.3.a.1) ────────────────────────────────
   //
   // A unit's own "when you play me" ability goes onto the Chain as a Pending
   // Item, becomes respondable when the Cleanup finalizes it, and resolves
@@ -788,7 +788,7 @@ function holdUnitTrigger(
  * Resolves a held on-play trigger when the chain pops it.
  *
  * **The unit is NOT required to still be in play.** Once a triggered ability is
- * on the Chain it is independent of its source (809.1.b), so an opponent who
+ * on the Chain it is independent of its source (383.3 / 377.3.a.1), so an opponent who
  * kills the unit during the response window does not cancel the ability — they
  * only remove what it might have referred to, and each resolver already answers
  * for a unit it cannot find. That is the opposite of `resolvePendingTrigger`'s
@@ -1353,7 +1353,7 @@ export function holdMoveTrigger(
  * Resolves a held on-move trigger when the chain pops it.
  *
  * **The unit is NOT required to still be in play**, for the same reason
- * `resolveHeldOnPlayTrigger` gives: 809.1.b makes an ability on the Chain
+ * `resolveHeldOnPlayTrigger` gives: 383.3 with 377.3.a.1 makes an ability on the Chain
  * independent of the card that made it, so an opponent who kills the mover during
  * the response window removes what the ability might have referred to, not the
  * ability. Noxian Drummer's token still arrives.

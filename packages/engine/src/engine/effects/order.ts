@@ -2434,7 +2434,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // Both conditions are fixed at FIRE time, which matters more here than the
     // ordinary reason: this trigger is held, and the window it opens is exactly
     // when an opponent would move or kill him. Re-asking at resolution would let
-    // them cancel a payout that has already been earned (809.1.b — the ability is
+    // them cancel a payout that has already been earned (383.3 / 377.3.a.1 — the ability is
     // independent of its source once it is on the chain).
     //
     // No guard on there being anything to do: `placeGoldTokens` always has
@@ -2467,7 +2467,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       // "HERE" rides on the decision, not on where she stands when it is
       // answered: a held trigger's response window is exactly when an opponent
       // would move or kill her, and the ability is independent of her by then
-      // (809.1.b).
+      // (383.3 / 377.3.a.1).
       return parkDecision(state, {
         kind: "SFD-170-reveal",
         playerIndex: listener.ownerIndex,
@@ -2670,7 +2670,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     //
     // Everything in `applies` is a TRIGGER condition and is fixed at fire time,
     // which is what stops an opponent cancelling an earned payout by moving him
-    // (809.1.b). The tag test is not one of those: "score 1 point IF your units
+    // (383.3 / 377.3.a.1). The tag test is not one of those: "score 1 point IF your units
     // have..." is a condition inside the EFFECT, and 402.1 puts an effect's own
     // conditions at resolution. So a fourth tribe that arrives during the response
     // window this trigger opens DOES pay out, and one that dies in it does not.
