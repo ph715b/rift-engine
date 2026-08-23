@@ -1485,12 +1485,24 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // Haven has been paying out on it. So "becoming ready" has one definition and
     // this card cannot disagree with it.
     //
-    // **Awaken does NOT fire it, and that is what makes the card playable rather
-    // than a free +2 every turn.** `runAwaken` readies by its own inline map
-    // rather than through `readyUnit` — recorded in `readyUnit`'s own note as the
-    // reason its Mageseeker check is structural — so only a SPELL or ABILITY
-    // readying him pays. Whether the rules agree is a real question, and it is
-    // recorded Unverified in docs/rules-conformance.md rather than decided here.
+    // **The AWAKEN fires it too, and this comment used to say the opposite.**
+    //
+    // It read: "Awaken does NOT fire it, and that is what makes the card playable
+    // rather than a free +2 every turn. `runAwaken` readies by its own inline map
+    // rather than through `readyUnit`… so only a SPELL or ABILITY readying him
+    // pays." Measured on 2026-08-23: false. He goes 5 to 7 across an Awaken.
+    //
+    // The seam was real once and was closed when the Awakening Phase learned to
+    // hold one `unitReadied` PER UNIT — the capture exists so Pirate's Haven can
+    // name the unit it pumps — and this card is registered against that same
+    // event. Nobody re-read the note afterwards, and its BALANCE argument was
+    // reasoning from a premise that had already stopped being true.
+    //
+    // **415.3.a** settles that the behaviour is right: "A player Readies all
+    // non-spell Game Objects they Control during the Awakening Phase on their
+    // turn." The Awaken is a readying, so a unit readied by it has become ready,
+    // and 415.1.c keeps it honest — a unit that was already ready does not become
+    // ready again. Pinned by `test/become-ready-on-awaken.test.ts`.
     //
     // It stacks: two readyings in a turn is +4, because each is its own
     // instruction and `giveMightThisTurn` adds (477.3's arithmetic layer).
@@ -1931,12 +1943,18 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // turn."
     //
     // **This includes the Awakening Phase**, which is the difference between a
-    // combo trigger and +1 Might to your whole board every turn. Rule 415: "A
+    // combo trigger and +1 Might to your whole board every turn. **415.3.a** (the
+    // precise sub-rule, not a bare 415): "A
     // player Readies all non-spell Game Objects they Control during the Awakening
     // Phase on their turn" — the Awaken is a readying performed by the player, so
     // "when you ready" is satisfied. That is the strong reading and the printed
     // one; whether a card this broad was intended is a design question, and it is
     // recorded Unverified in docs/rules-conformance.md rather than softened here.
+    //
+    // **Fretful Feline (VEN-071) read the SAME event and its comment claimed the
+    // opposite** — "Awaken does NOT fire it" — until 2026-08-23. Two claims about
+    // one `unitReadied` event, in one file, and the behaviour matched this one.
+    // Both are now pinned by `test/become-ready-on-awaken.test.ts`.
     //
     // The 415 guard that keeps it from being broader still lives in `readyUnit`
     // and `runAwaken`, not here: an already-Ready unit is not readied, so it
