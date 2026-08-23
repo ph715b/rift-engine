@@ -99,6 +99,46 @@ describe("Fortified Position (OGN-279): a unit gains [Shield 2] this combat", ()
     expect(effectiveKeywords(settled, settled.battlefields[0]!.units["p2"]![0]!, 1)["Shield"]).toBe(2);
   });
 
+  it("PINNED: the [Shield 2] survives the COMBAT ending, because 'this combat' is stored as 'this turn'", () => {
+    // **A recorded divergence, WIDER than printed, pinned 2026-08-23 by the
+    // unverified-row sweep.**
+    //
+    // The card prints "[Shield 2] **this combat**". The engine has no per-combat
+    // duration at all — `thisCombat` appears nowhere in `src` — so the grant
+    // lands on `keywordsThisTurn` and outlives the fight that granted it. A unit
+    // that defends a SECOND time in the same turn is still carrying it.
+    //
+    // Asserted as the WRONG answer on purpose, so that adding a combat-scoped
+    // duration fails here loudly instead of silently changing a number nobody is
+    // watching. **Invert this pin when that lands — do not delete it**: "the
+    // grant expired" is a negative, and a duration that silently stops expiring
+    // looks like nothing at all from outside.
+    const mine = makeUnit({ name: "Defender" });
+    const settled = answerDecisions(
+      beginCombatAt(contestedAt(FORTIFIED_POSITION, [mine], [makeUnit()]), "bf1", 1),
+      (options) => options.find((o) => o.instanceId === mine.instanceId)!.id,
+    );
+    const shielded = settled.battlefields[0]!.units["p1"]![0]!;
+    expect(effectiveKeywords(settled, shielded, 0)["Shield"], "the grant never landed").toBe(2);
+
+    // The combat is over: nothing contests the battlefield any more.
+    const afterCombat = {
+      ...settled,
+      battlefields: settled.battlefields.map((bf) => (bf.id === "bf1" ? { ...bf, contestedByIndex: null } : bf)),
+    };
+    expect(
+      effectiveKeywords(afterCombat, shielded, 0)["Shield"],
+      "the [Shield 2] now expires with the combat — retire this pin and record the fix",
+    ).toBe(2);
+    // Control: the OTHER unit never received the grant, so this cannot be
+    // passing because effectiveKeywords reports Shield 2 for everything.
+    const theirs = afterCombat.battlefields[0]!.units["p2"]![0]!;
+    expect(
+      effectiveKeywords(afterCombat, theirs, 1)["Shield"],
+      "every unit reports Shield 2, so this pin measures nothing",
+    ).not.toBe(2);
+  });
+
   it("ADDS to a printed Shield — 814.2 sums granted Shield Values", () => {
     // The premise here used to be `Math.max`, on a citation of "817.1.a", which
     // is Vision's "It is present on Permanents" and states no redundancy rule.
