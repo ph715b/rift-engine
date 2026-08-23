@@ -233,7 +233,21 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // The domain filter is enforced in `unitListChoiceError`, the one function the
     // enumerator and the validator BOTH go through — the enumerate/execute split
     // this codebase has shipped six bugs into.
-    targeting: { kind: "unitList", min: 0, owner: "enemy", domain: "Order", maxTotalMight: DECREE_OF_DISCORD_MAX_TOTAL },
+    // **`scope: "anywhere"`, added 2026-08-23 by the sweep that followed
+    // Rampage.** "Return any number of enemy Order units with total Might 5 or
+    // less to their owners' hands" names no location — the only narrowings
+    // printed are the DOMAIN and the total Might — so 355.9.a.1's widening
+    // applies and an enemy Order unit in their base is returnable. Omitting the
+    // scope silently confined it to battlefields, which for a "return any
+    // number" effect is a materially smaller card.
+    targeting: {
+      kind: "unitList",
+      min: 0,
+      owner: "enemy",
+      domain: "Order",
+      maxTotalMight: DECREE_OF_DISCORD_MAX_TOTAL,
+      scope: "anywhere",
+    },
     resolve: (state, _ctx, event) =>
       (event.targetUnitInstanceIds ?? []).reduce((next, id) => returnUnitToHand(next, id), state),
   },

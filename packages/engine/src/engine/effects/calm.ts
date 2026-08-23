@@ -727,7 +727,19 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // a flat Might bonus: it scales with how many of your units are buffed, it
     // reaches units buffed later this turn, and it does nothing for an unbuffed
     // one. effectiveMight reads it; runEnd clears it.
-    targeting: { kind: "unit", owner: "friendly" },
+    // **`scope: "anywhere"`, added 2026-08-23 by the sweep that followed
+    // Rampage.** "Buff a friendly unit" names no location, and omitting the
+    // scope is not neutral: `eligibleTargets` defaults to `"battlefield"`, so a
+    // silent spec is NARROWER than a silent card. 355.9.a.1 widens a bare noun
+    // to the Board and 198.1 puts the Bases on it, so a friendly unit standing
+    // at home is a legal choice — and a natural one, since a buff on a unit in
+    // base is exactly how it survives to attack later.
+    //
+    // This does NOT disturb the from-Hidden restriction the comment above
+    // describes: 811.1.d.2 confines the choice to the hidden battlefield, and
+    // that rides on `atHiddenBattlefield` in `legal-actions`, which is a
+    // different filter applied on top of the scope.
+    targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
     resolve: (state, ctx, event) => {
       const buffed = event.targetUnitInstanceId ? addBuff(state, event.targetUnitInstanceId) : state;
       const players = [...buffed.players] as [PlayerState, PlayerState];
