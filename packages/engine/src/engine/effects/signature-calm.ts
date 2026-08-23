@@ -229,7 +229,26 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // The move happens FIRST, printed order, so the duel is fought at the
     // destination — and `forceMoveToBattlefield` applies Contested for the MOVED
     // unit's controller, which can open a Showdown the caster never joined.
-    targeting: { kind: "unitSlots", slots: ["enemy", "enemy"], min: 2, asymmetricSlots: true, secondAtDestination: true },
+    // **`scope: "anywhere"` added 2026-08-23, with Rampage's.** "Move an enemy
+    // unit" names no location, and omitting the scope is not neutral:
+    // `eligibleTargets` defaults to `"battlefield"`, so a silent spec is
+    // NARROWER than a silent card. Charm prints the identical sentence and has
+    // carried `scope: "anywhere"` all along — same phrase, two answers, which is
+    // how this one was found while fixing Rampage rather than from a report.
+    //
+    // 355.9.a.1 widens a bare noun to the Board and 198.1 puts the Bases on it.
+    // The SECOND slot is unaffected: `secondAtDestination` relates it to where
+    // the first is going, and `secondTargetIsAtDestination` — shared by the
+    // enumerator and the validator — already works the base-destination case for
+    // this exact card.
+    targeting: {
+      kind: "unitSlots",
+      slots: ["enemy", "enemy"],
+      min: 2,
+      asymmetricSlots: true,
+      secondAtDestination: true,
+      scope: "anywhere",
+    },
     resolve: (state, ctx, event) => {
       const { targetUnitInstanceId: movedId, secondTargetUnitInstanceId: otherId } = event;
       if (!movedId || !otherId) return state;

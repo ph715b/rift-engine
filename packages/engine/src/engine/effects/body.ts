@@ -222,17 +222,35 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // paying: +2 on the friendly unit is +2 of damage dealt to the enemy. A
     // resolver that pumped afterwards would buy a survivor and nothing else.
     //
-    // # Two slots, and deliberately no `sameBattlefield`
+    // # Two slots, no `sameBattlefield`, and `scope: "anywhere"`
     //
     // The card names no shared location, so `unitSlots` with roles
-    // `["friendly", "enemy"]` and the default scope — unlike Facebreaker, whose
-    // "at the same battlefield" is printed and IS a relation between the targets.
+    // `["friendly", "enemy"]` — unlike Facebreaker, whose "at the same
+    // battlefield" is printed and IS a relation between the targets.
+    //
+    // **The scope was OMITTED until 2026-08-23, and omitting it is not neutral.**
+    // `eligibleTargets` defaults to `"battlefield"`, so a spec that says nothing
+    // is NARROWER than a card that prints nothing — the exact inversion. The old
+    // comment drew the right contrast against Facebreaker from the wrong default.
+    //
+    // 355.9.a.1 is the widening — "'Unit,' 'gear,' and 'rune' refer to objects on
+    // the Board unless specified otherwise" — and 198.1 puts the Bases on the
+    // Board, so a bare "a friendly unit" reaches one standing at home. This is
+    // the `355.9.a.1` vs `355.9.b` confusion CLAUDE.md records, in its other
+    // direction: both sub-rules are real, one widens and one narrows.
+    //
+    // Reported from play: "rampage is unable to cast and I get a message saying I
+    // need an enemy and a friendly unit to target when I have both." They did
+    // have both; one of them was in a base.
+    //
+    // Charm ("Move an enemy unit", no location printed) already carries
+    // `scope: "anywhere"` for the same reason, and is the cross-check.
     //
     // The optional `[Body]` is `OPTIONAL_POWER_COSTS`' shape, read off the action
     // as `optionalPowerPaid` for the reason Blast Corps Cadet's entry gives:
     // nothing on the board records how the card was paid for by the time this
     // runs.
-    targeting: { kind: "unitSlots", slots: ["friendly", "enemy"], min: 2 },
+    targeting: { kind: "unitSlots", slots: ["friendly", "enemy"], min: 2, scope: "anywhere" },
     resolve: (state, ctx, event) => {
       const friendlyId = event.targetUnitInstanceId;
       const enemyId = event.secondTargetUnitInstanceId;
