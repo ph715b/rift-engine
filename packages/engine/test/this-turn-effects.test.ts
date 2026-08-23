@@ -87,8 +87,14 @@ describe("Sky Splitter (OGN-014): cost reduced by your biggest body", () => {
   });
 
   /**
-   * **PINNED DIVERGENCE — 2026-08-23. This is 356.4.e's OWN worked example, and
-   * both cards are in this pool.**
+   * **356.4.e's OWN worked example, with both cards in this pool — and the
+   * engine got it wrong until 2026-08-23.**
+   *
+   * **INVERTED the same day it was written.** It first went in asserting the
+   * divergent answer (1), was mutation-checked by hoisting the Apprentice block,
+   * and is now pointed the right way round. Kept rather than deleted because it
+   * is the rules' own example: if the ordering ever regresses, this is the line
+   * that says so.
    *
    * *"356.4.e. If a discount applies a minimum cost, that minimum applies only to
    * that discount. Example: **Eager Apprentice** says 'While I'm at a
@@ -102,25 +108,18 @@ describe("Sky Splitter (OGN-014): cost reduced by your biggest body", () => {
    * other order, Sky Splitter's Energy cost would be **1**."*
    *
    * **356.4.c.1 and 356.4.d.1 make the order the PLAYER's choice** ("may be
-   * applied in any order"). `modifiedEnergyCost` fixes one order instead, and the
-   * order it fixed is the expensive one: Sky Splitter's self-scaling discount is
-   * applied around line 1278 and Eager Apprentice's floored one around line 1376.
-   * Every block in that function carries the same reasoning — "a sometimes-
-   * discount should reduce what the card prints, not something already reduced" —
-   * which is a sensible instinct and, for a FLOORED discount, backwards.
+   * applied in any order"). `modifiedEnergyCost` fixed one order instead, and the
+   * order it fixed was the expensive one: Sky Splitter's self-scaling discount ran
+   * long before Eager Apprentice's floored one. Every block in that function
+   * carried the same reasoning — "a sometimes-discount should reduce what the card
+   * prints, not something already reduced" — which is right for an UNFLOORED
+   * discount and exactly backwards for a floored one.
    *
-   * **It overcharges by 1, so it can make a legal play unaffordable** — the
-   * project owner's standing ruling is that the engine never withholds a legal
-   * play. The class is wider than these two cards: any floored board-discount
-   * (Eager Apprentice, Vex - Cheerless, Stargazer, Herald of Scales) meeting any
-   * self-scaling one (Sky Splitter, Rhasa, Jaull Fish, Shadowblade Lurker, Plaza
-   * Guardian, Concentrate, Master Yi, a Firebrand charge).
-   *
-   * Not fixed in the same change: `modifiedEnergyCost` prices every enumerated
-   * action, so reordering it moves what the AI can afford and therefore
-   * `reachability`. **INVERT this pin when it is fixed rather than deleting it.**
+   * `applyFlooredDiscounts` now runs every discount that states a minimum first,
+   * highest minimum first, in the never-raise form. See its doc comment for the
+   * derivation and for why the player is not asked to pick the order.
    */
-  it("charges 1 where 356.4.e lets the player pay 0 (divergent, pinned)", () => {
+  it("lets the player pay 0, not 1 — 356.4.e's own worked example", () => {
     const state = makeState({ phase: "Action" });
     state.battlefields[0]!.units = {
       p1: [realUnitInstance(EAGER_APPRENTICE), makeUnit({ might: 7, name: "Big" })],
@@ -130,8 +129,25 @@ describe("Sky Splitter (OGN-014): cost reduced by your biggest body", () => {
       .toBe(7);
     expect(
       modifiedEnergyCost(state, 0, "Spell", 8, SKY_SPLITTER),
-      "DIVERGENCE CLOSED — the discounts now apply in the cheaper order; invert this pin",
-    ).toBe(1);
+      "the discounts went back to the expensive order",
+    ).toBe(0);
+  });
+
+  it("...and the Apprentice never RAISES a spell already priced below its floor", () => {
+    // Measured before the fix: Sky Splitter behind an 8-Might unit costs 0, and an
+    // Eager Apprentice on the board made it cost 1. A card that says spells cost
+    // LESS must never make one cost more. `vexSpellSwing` had this right and named
+    // this exact case; the other four floored discounts used the plain
+    // `Math.max(floor, ...)` form that raises.
+    const state = makeState({ phase: "Action" });
+    state.battlefields[0]!.units = {
+      p1: [realUnitInstance(EAGER_APPRENTICE), makeUnit({ might: 8, name: "Huge" })],
+    };
+    expect(modifiedEnergyCost(state, 0, "Spell", 8, SKY_SPLITTER), "the Apprentice raised a free spell").toBe(0);
+    // A printed-0 spell, with nothing else on the board to confuse it.
+    const bare = makeState({ phase: "Action" });
+    bare.battlefields[0]!.units = { p1: [realUnitInstance(EAGER_APPRENTICE)] };
+    expect(modifiedEnergyCost(bare, 0, "Spell", 0, "OGN-999"), "a printed-0 spell was raised to 1").toBe(0);
   });
 });
 

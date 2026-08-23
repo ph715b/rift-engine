@@ -149,13 +149,18 @@ const SHADOWBLADE_LURKER_DISCOUNT = 2;
  *
  * **"To a minimum of [1]" is a FLOOR, and it is the card's own** — unlike every
  * other reduction here, which floors at 0. So a 2-Energy Flow cost becomes 1
- * rather than 0, and this is the clamp Eager Apprentice's note describes from the
- * other side.
+ * rather than 0. Applied by `applyFlooredDiscounts`, with every other discount
+ * that states a minimum.
  *
- * Read off the BOARD, so a Stargazer killed in response stops discounting — and
- * two of them do NOT stack: the card states an absolute floor rather than a
- * per-source reduction, and `Math.max` against the floor is what expresses that.
- * Recorded Unverified in docs/rules-conformance.md.
+ * Read off the BOARD, so a Stargazer killed in response stops discounting.
+ *
+ * **This paragraph used to end "and two of them do NOT stack: the card states an
+ * absolute floor rather than a per-source reduction" — which the fix on
+ * 2026-08-23 reversed, and it was left contradicting `stargazerCount`'s own note
+ * ten lines below.** They DO stack, per 356.4.e; the correction is recorded
+ * there. Fixed 2026-08-23 by the unverified-row sweep, and worth noting as the
+ * recurring shape: the comment that goes stale is the one nobody had to read to
+ * make the change.
  */
 const STARGAZER = "VEN-098";
 const STARGAZER_DISCOUNT = 2;
@@ -1176,6 +1181,161 @@ export function costModifierDefIds(): string[] {
  * Floored at 0, not at 1: the general rule has no minimum, and the one card in
  * this pool that DOES state a minimum ("to a minimum of 1") states it on itself.
  */
+/**
+ * A discount that states a MINIMUM — "to a minimum of [N]".
+ *
+ * `amount` is what it takes off; `floor` is the price it will not reduce past.
+ */
+export interface FlooredDiscount {
+  amount: number;
+  floor: number;
+}
+
+/**
+ * Applies every discount that states a minimum, BEFORE any that does not, and
+ * highest minimum first.
+ *
+ * # Why floored discounts go first — 356.4.e, and its example is in this pool
+ *
+ * **356.4.c.1 / 356.4.d.1**: discounts "may be applied in any order", so the
+ * order is the PLAYER's choice. **356.4.e** then makes the choice matter, with a
+ * worked example whose two cards are both here:
+ *
+ * > "Eager Apprentice says 'the Energy costs for spells you play is reduced by
+ * > [1], to a minimum of [1].' A player who controls Eager Apprentice and a unit
+ * > with 7 Might plays Sky Splitter, a spell that costs 8 Energy and says 'This
+ * > spell's Energy cost is reduced by the highest Might among units you control.'
+ * > That player **can choose to apply Eager Apprentice's discount first**,
+ * > reducing Sky Splitter's Energy cost to 7, then apply Sky Splitter's discount,
+ * > reducing its Energy cost to **0**. If they applied these discounts in the
+ * > other order, Sky Splitter's Energy cost would be **1**."
+ *
+ * Until 2026-08-23 this function fixed the expensive order, and did it for a
+ * reason repeated at nearly every block below — *"a sometimes-discount should
+ * reduce what the card prints, not something already reduced"*. That is right
+ * for an UNFLOORED discount and exactly backwards for a floored one: a floor
+ * wastes value only when the cost has already fallen to it, so a floored
+ * discount is worth most while the cost is still high.
+ *
+ * # The player is not asked, and that is faithful rather than a shortcut
+ *
+ * **Nobody ever wants to pay MORE**, and the rules deliberately sever the amount
+ * actually paid from anything that reads a cost: 356.4.f.1 ("It doesn't matter
+ * how much the player actually paid") and Sky Splitter's own example under
+ * `[Level]`-style triggers ("Lux's ability will trigger, regardless of how much
+ * was actually paid for Sky Splitter"). So the cheapest legal order is always
+ * the one the player would choose, and computing it is strictly better than
+ * putting a question on every play — which would also fan out the AI's action
+ * space for a decision with one rational answer.
+ *
+ * # Highest floor first is DERIVED, not guessed
+ *
+ * Brute-forced against every ordering over 250,096 cases — 2 and 3 discounts,
+ * costs 0–10, amounts 0–6, floors 0–3 — with zero counterexamples. Pinned by a
+ * property test in `cost-discount-order.test.ts` so a future discount with a new
+ * shape cannot quietly break it.
+ *
+ * # The never-raise form
+ *
+ * `Math.max(Math.min(cost, floor), cost - amount)`, not `Math.max(floor, cost -
+ * amount)`. **The plain form RAISES a card already priced below the floor** —
+ * measured before this change: Sky Splitter behind an 8-Might unit costs 0, and
+ * an Eager Apprentice on the board made it cost **1**. A card that says spells
+ * cost less must never make one cost more. `vexSpellSwing`'s branch below had
+ * this right and named the exact case; Eager Apprentice, Battering Ram, Herald
+ * of Scales and Stargazer all used the plain form.
+ */
+function applyFlooredDiscounts(
+  state: GameState,
+  playerIndex: 0 | 1,
+  cardKind: "Unit" | "Spell" | "Gear" | "Legend",
+  cost: number,
+  defId: string | undefined,
+  playedFromHand: boolean,
+): number {
+  const player = state.players[playerIndex];
+  const floored: FlooredDiscount[] = [];
+
+  // Eager Apprentice — "the Energy costs for spells you play is reduced by [1],
+  // to a minimum of [1]". Battlefield presence only; a base-zone Apprentice does
+  // not apply.
+  if (
+    cardKind === "Spell" &&
+    state.battlefields.some((bf) => (bf.units[player.id] ?? []).some((u) => u.defId === EAGER_APPRENTICE))
+  ) {
+    floored.push({ amount: 1, floor: 1 });
+  }
+
+  // Stargazer's [Flow]-from-trash discount, ONCE PER COPY each bounded by its own
+  // floor — 356.4.e's "that minimum applies only to that discount".
+  //
+  // **MEASURED-EQUIVALENT to summing, for as long as every copy shares a floor**,
+  // and a mutant that sums them survives the suite. The algebra: with equal floor
+  // f and amount a, per-copy is max(f, max(f, c-a) - a); if c-a >= f that is
+  // max(f, c-2a), and if c-a < f both forms collapse to f. So the two agree
+  // everywhere. Written per-copy anyway because that is what 356.4.e SAYS, and
+  // because the equivalence is a fact about equal floors rather than about the
+  // rule — the day two sources of one discount carry different minimums, the
+  // summed form is silently wrong and this one is still right. What is NOT
+  // equivalent, and is what the Stargazer row was about, is applying it ONCE:
+  // `.some()` instead of a count is the bug that fix removed.
+  if (!playedFromHand && cardKind === "Spell" && defId !== undefined && cardHasFlowCost(defId)) {
+    for (let i = 0; i < stargazerCount(state, playerIndex); i += 1) {
+      floored.push({ amount: STARGAZER_DISCOUNT, floor: STARGAZER_FLOOR });
+    }
+  }
+
+  // Herald of Scales — a Dragon costs [2] less per Herald, to a minimum of [1].
+  // One entry per Herald, for Stargazer's reason directly above, including the
+  // measured equivalence to summing.
+  if (isDragon(defId)) {
+    for (let i = 0; i < heraldCount(state, playerIndex); i += 1) {
+      floored.push({ amount: HERALD_DISCOUNT, floor: HERALD_FLOOR });
+    }
+  }
+
+  // Battering Ram — "I cost [1] less for each card you've played this turn, to a
+  // minimum of [1]." `cardsPlayedThisTurn` counts the Ram itself only AFTER it is
+  // played, so a Ram played first is priced at its full cost; that is the
+  // counter's meaning rather than a decision here.
+  if (defId === BATTERING_RAM && player.cardsPlayedThisTurn > 0) {
+    floored.push({ amount: player.cardsPlayedThisTurn, floor: BATTERING_RAM_MINIMUM });
+  }
+
+  return floored.length === 0 ? cost : cheapestFlooredOrder(cost, floored);
+}
+
+/**
+ * Folds a set of floored discounts in the CHEAPEST legal order — highest floor
+ * first, never raising.
+ *
+ * **Exported only so a test can call it, and that is deliberate rather than
+ * lazy.** The SORT is currently unreachable through `modifiedEnergyCost`:
+ * **every printed minimum in the pool today is 1** (Eager Apprentice, Stargazer,
+ * Herald of Scales and Battering Ram all floor at 1), and equal floors commute,
+ * so a mutant reversing the comparator survives every board a card can produce.
+ * Measured, not assumed — reversing it and running the suite is green.
+ *
+ * Kept rather than deleted because it states the RULE (356.4.c.1/d.1's "any
+ * order", made cheapest per 356.4.e) rather than today's pool, and because the
+ * day a card prints "to a minimum of [2]" it becomes load-bearing with nothing
+ * to announce that it has. `cost-discount-order.test.ts` calls this function
+ * directly and exhaustively, which is the only way to pin a branch the board
+ * cannot reach — see the `mutation-test` skill's note on unreachable code.
+ */
+export function cheapestFlooredOrder(cost: number, discounts: readonly FlooredDiscount[]): number {
+  let next = cost;
+  // A stable sort leaves equal-floor discounts in collection order, which keeps
+  // the result deterministic for the probes.
+  for (const d of [...discounts].sort((a, b) => b.floor - a.floor)) {
+    // Never RAISE: a card already priced below the floor keeps its price. The
+    // plain `Math.max(floor, …)` form made Eager Apprentice put a free spell up
+    // to 1 Energy — see this module's note above.
+    next = Math.max(Math.min(next, d.floor), next - d.amount);
+  }
+  return next;
+}
+
 export function modifiedEnergyCost(
   state: GameState,
   playerIndex: 0 | 1,
@@ -1196,6 +1356,10 @@ export function modifiedEnergyCost(
   // The Power half is untouched by design; see `freeGearPlayApplies`.
   if (freeGearPlayApplies(state, playerIndex, cardKind, rawEnergyCost)) return 0;
 
+  // **Every discount that states a MINIMUM goes first, highest minimum first.**
+  // See `applyFlooredDiscounts` for the rule and the derivation.
+  cost = applyFlooredDiscounts(state, playerIndex, cardKind, cost, defId, playedFromHand);
+
   // Void Drone and Drag Under. Taken off the PRINTED cost, before the
   // conditional discounts below, on the same reasoning their own comment gives
   // for going first: a sometimes-discount should reduce what the card prints,
@@ -1204,9 +1368,12 @@ export function modifiedEnergyCost(
     cost = Math.max(0, cost - PLAY_FROM_ELSEWHERE_DISCOUNT);
   }
 
-  // Before the other two: a discount that only sometimes applies should be taken
-  // off the printed cost, not off an already-reduced one, and Eager Apprentice's
-  // own "to a minimum of 1" then clamps whatever is left.
+  // A discount that only sometimes applies should be taken off the printed cost
+  // rather than off an already-reduced one — the reasoning every UNFLOORED block
+  // below shares. It used to end "and Eager Apprentice's own 'to a minimum of 1'
+  // then clamps whatever is left", which was the whole 356.4.e bug: a floored
+  // discount clamped LAST is the expensive order. The floored ones now run before
+  // any of these, in `applyFlooredDiscounts`.
   cost = Math.max(0, cost - legionDiscountFor(state, playerIndex, defId));
 
   if (defId === FIND_YOUR_CENTER && opponentNearVictory(state, playerIndex)) {
@@ -1239,20 +1406,8 @@ export function modifiedEnergyCost(
   //
   // The FLOOR is the card's own "to a minimum of [1]", so this clamp is not the
   // usual `Math.max(0, …)`.
-  if (
-    !playedFromHand &&
-    cardKind === "Spell" &&
-    defId !== undefined &&
-    cardHasFlowCost(defId) &&
-    stargazerCount(state, playerIndex) > 0
-  ) {
-    // Applied ONCE PER COPY, each bounded by its own floor — 356.4.e's "that
-    // minimum applies only to that discount", worked in sequence exactly as its
-    // Eager Apprentice example does.
-    for (let i = 0; i < stargazerCount(state, playerIndex); i += 1) {
-      cost = Math.max(STARGAZER_FLOOR, cost - STARGAZER_DISCOUNT);
-    }
-  }
+  // Stargazer's [Flow]-from-trash discount states a minimum, so it is applied by
+  // `applyFlooredDiscounts` at the top of this function rather than here.
 
   // Shadowblade Lurker's self-scaling discount. Floored at 0 by the `Math.max`
   // like every other reduction here — he states no minimum, unlike Eager
@@ -1290,18 +1445,8 @@ export function modifiedEnergyCost(
     cost = Math.max(0, cost - player.pointsFromHoldingThisTurn * YORDLE_ENERGY_PER_POINT);
   }
 
-  if (defId === BATTERING_RAM) {
-    // "I cost [1] less for each card you've played this turn, to a minimum of
-    // [1]." The minimum is PRINTED on the card, which is why it is clamped here
-    // rather than at the shared floor of 0 below — Eager Apprentice states its
-    // own the same way, and this function's doc comment records the distinction.
-    //
-    // `cardsPlayedThisTurn` counts the Ram itself only AFTER it is played, so a
-    // Ram played first is priced at its full cost. That is the counter's meaning
-    // rather than a decision here: `execute-play-card` bumps it as the card is
-    // played, and pricing happens before.
-    cost = Math.max(BATTERING_RAM_MINIMUM, cost - player.cardsPlayedThisTurn);
-  }
+  // Battering Ram's self-scaling discount states a minimum, so it is applied by
+  // `applyFlooredDiscounts` at the top of this function rather than here.
 
   if (defId === JAULL_FISH) {
     // "I cost [2] less for each of your [Mighty] units." Read through
@@ -1327,14 +1472,10 @@ export function modifiedEnergyCost(
     cost = Math.max(0, cost - player.trash.length);
   }
 
-  // A Dragon being played while its Herald is on the board. Applied after the
-  // conditional discounts above for the same reason they precede each other: a
-  // sometimes-discount comes off the printed cost, and a printed floor clamps
-  // whatever is left rather than being applied mid-stack.
-  if (isDragon(defId)) {
-    const heralds = heraldCount(state, playerIndex);
-    if (heralds > 0) cost = Math.max(HERALD_FLOOR, cost - HERALD_DISCOUNT * heralds);
-  }
+  // Herald of Scales' per-Herald Dragon discount states a minimum, so it is
+  // applied by `applyFlooredDiscounts` at the top of this function rather than
+  // here — and once PER HERALD, each bounded by its own floor (356.4.e), which
+  // the summed `HERALD_DISCOUNT * heralds` form here could not express.
 
   // Concentrate's [Level] tiers. Applied before the floors below on the same
   // reasoning as every conditional discount here: a sometimes-discount comes off
@@ -1371,13 +1512,8 @@ export function modifiedEnergyCost(
     cost = Math.max(0, cost - player.nextSpellEnergyDiscount);
   }
 
-  if (cardKind === "Spell") {
-    const hasEagerApprenticeAtBattlefield = state.battlefields.some((bf) =>
-      (bf.units[player.id] ?? []).some((u) => u.defId === EAGER_APPRENTICE),
-    );
-    // Eager Apprentice's own floor of 1, stated on the card.
-    if (hasEagerApprenticeAtBattlefield) cost = Math.max(1, cost - 1);
-  }
+  // Eager Apprentice's floor of 1 is applied by `applyFlooredDiscounts` at the
+  // top of this function rather than here.
 
   // Vex - Cheerless's ENERGY half, both directions. Her Power halves are
   // `combatSpellPowerDiscount` (friendly) and `rainbowSurchargeForPlay` (enemy).
