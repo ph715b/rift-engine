@@ -1815,13 +1815,18 @@ const TOKEN_PLACEMENT_SPELL_DEF_IDS = new Set([
   // destination clause, so 185.2.a's inherent Unit restriction is the whole rule
   // and the caster chooses base or a battlefield they control.
   //
-  // **The same token, from a card that DOES get the choice.** VEN-023 Zed, From
-  // the Shadows mints the identical Shadow Clone straight to base and is recorded
-  // in docs/rules-conformance.md as narrower than printed — because his is a
-  // UNIT's on-play trigger, which has no `destinationBattlefieldId` axis to fan
-  // out over, and this table is for SPELLS. Two makers of one token, two
-  // different answers, and the difference is the shape of the card that makes it
-  // rather than anything the token says.
+  // **The same token, from a card that reaches the choice another way.** VEN-023
+  // Zed, From the Shadows mints the identical Shadow Clone and is NOT in this
+  // table, because his is a UNIT's on-play trigger with no
+  // `destinationBattlefieldId` axis to fan out over and this table is for SPELLS.
+  // He asks at resolution instead — `VEN-023-place` in effects/fury.ts — which is
+  // how a trigger asks anything.
+  //
+  // The two makers of this one token therefore take two different ROUTES to the
+  // same offer, and that is the shape of the card rather than anything the token
+  // says. Until 2026-08-22 they also gave two different ANSWERS, with Zed's
+  // going straight to base; that was recorded in docs/rules-conformance.md as
+  // narrower than printed and is now closed.
   "VEN-144",
 ]);
 

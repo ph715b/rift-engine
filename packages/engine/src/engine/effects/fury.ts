@@ -40,7 +40,7 @@ import { controlsAnyFacedownCard } from "../hidden.js";
 import { effectiveMight } from "../effective-might.js";
 import { modifiedEnergyCost } from "../cost-modifiers.js";
 import { attackerIndexAt, isAttackingAt, isFightingAt } from "../combat-designation.js";
-import { placeGoldTokens, placeToken, SHADOW_CLONE_TOKEN, type TokenSpec } from "../token.js";
+import { placeGoldTokens, placeToken, SHADOW_CLONE_TOKEN, type TokenDestination, type TokenSpec } from "../token.js";
 import {
   ARMORY_WARD_POWER,
   clearPaidDeathWard,
@@ -50,6 +50,7 @@ import {
 } from "../death-ward.js";
 import { killGear } from "../triggers.js";
 import { parkDecision, type DecisionOption } from "../decisions.js";
+import { mayPlayUnitAt } from "../battlefield-continuous.js";
 import { findUnitAnywhere, findUnitOnBattlefield, type AnyUnitLocation } from "../target-lookup.js";
 import { playUnitToBase } from "../deploy.js";
 import { playUnitFree } from "../free-play.js";
@@ -1256,19 +1257,31 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     // Strike's: it is the one instruction the cost machinery cannot perform,
     // since it does not know which card the effect wants gone.
     //
-    // **TO BASE, and that is a decision rather than the printed word.** The card
-    // names no destination, and 185.2.a plays a token "following all the
-    // applicable steps for playing a card plus any restrictions from the effect
-    // that created it" — which for a Unit is base or a battlefield you control.
-    // Offering the choice would mean a row in `TOKEN_PLACEMENT_SPELL_DEF_IDS`,
-    // and that table is for SPELLS: this is a unit's on-play trigger, which has
-    // no `destinationBattlefieldId` axis of its own to fan out over. Recorded in
-    // docs/rules-conformance.md as narrower than printed.
+    // **The caster CHOOSES where the Clone lands, base or a battlefield they
+    // control.** The card names no destination, so 185.2.a is the whole rule: a
+    // token is played "following all the applicable steps for playing a card plus
+    // any restrictions from the effect that created it", and a Unit's inherent
+    // restriction is base or a battlefield you control.
+    //
+    // **This was recorded as "narrower than printed" for a blocker that was real
+    // but did not bind.** The note said the choice needs a row in
+    // `TOKEN_PLACEMENT_SPELL_DEF_IDS`, and that table is for SPELLS — true, and
+    // true that a unit's on-play trigger has no `destinationBattlefieldId` axis
+    // to fan out over. But an action-space fan-out is not the only way to ask:
+    // the trigger PARKS A QUESTION at resolution, which is how every battlefield
+    // ability asks its own, and Vanguard Armory (`SFD-168-place` in order.ts)
+    // already asks this exact question with these exact options. VEN-144 Death
+    // Mark mints the identical token and always got the choice; the difference
+    // was the shape of the card that makes it, not anything the token says.
+    //
+    // With no controlled battlefield the list is one option long and
+    // `advanceDecisions` executes it without ever showing it, so the ordinary
+    // case costs the player nothing and no prompt appears.
     targeting: { kind: "none" },
     resolve: (state, ctx, _unitId, event) => {
       if (event.discardCardInstanceId === undefined) return state;
       const paid = discardCards(state, ctx.casterIndex, 1, [event.discardCardInstanceId]);
-      return placeToken(paid, ctx.casterIndex, "base", SHADOW_CLONE_TOKEN);
+      return parkDecision(paid, { kind: "VEN-023-place", playerIndex: ctx.casterIndex });
     },
   },
   "VEN-017": {
@@ -3351,6 +3364,34 @@ function rellEquipCandidates(state: GameState, playerIndex: 0 | 1): GearInstance
 }
 
 export const decisions: Record<string, DecisionDefinition> = {
+  /**
+   * Zed, From the Shadows — where does the Shadow Clone go?
+   *
+   * The destinations are the ones a token may be PLAYED to: base, or a
+   * battlefield its controller CONTROLS. Asked through the same `mayPlayUnitAt`
+   * gate Vanguard Armory uses, which is deliberately stricter than the Unit
+   * direct-deploy check — that one accepts mere presence, while Rockfall Path
+   * bars a destination for both players.
+   *
+   * **Rebuilt from live state on every read**, the discipline every decision in
+   * this file keeps: a battlefield lost between the trigger being held and the
+   * question being answered must not still be on offer.
+   *
+   * One option means no prompt — see the trigger's own note.
+   */
+  "VEN-023-place": {
+    prompt: () => "Zed, From the Shadows: where does the Shadow Clone go?",
+    options: (state, d) => [
+      { id: "base", label: "Your base" },
+      ...state.battlefields
+        .filter((bf) => bf.controllerId === state.players[d.playerIndex].id && mayPlayUnitAt(state, bf.id))
+        .map((bf) => ({ id: bf.id, label: bf.name })),
+    ],
+    resolve: (state, d, optionId) => {
+      const destination: TokenDestination = optionId === "base" ? "base" : { battlefieldId: optionId };
+      return placeToken(state, d.playerIndex, destination, SHADOW_CLONE_TOKEN);
+    },
+  },
   /**
    * Baccai Reaper's "you may pay [Fury] to give me [Assault 2] this turn".
    *
