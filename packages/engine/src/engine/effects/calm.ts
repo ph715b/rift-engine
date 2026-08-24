@@ -967,11 +967,19 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // a duplicate, which for two same-role slots is usually right and is wrong
     // here.
     //
-    // Nothing prints "another", so the SAME unit may fill both slots... except
-    // that `legal-actions` requires the two to be distinct units. That is a
-    // narrowing, recorded in docs/rules-conformance.md rather than worked around,
-    // because moving a unit and then stunning that same unit is a real line the
-    // card's wording permits.
+    // **Nothing prints "another", and its two slots come from two SEPARATE
+    // INSTRUCTIONS** — "Move an enemy unit" and "[Level 6] Stun an enemy unit" —
+    // each choosing independently. So the same unit may fill both, and moving a
+    // unit out of a fight and then stunning that same unit is a line the card
+    // allows. `slotsMayCoincide` says so; fixed 2026-08-23.
+    //
+    // **It is the ONLY card in the pool that opts in**, and that was measured
+    // rather than assumed: of the 11 same-role slot cards, 8 print a distinctness
+    // word ("another", "other", "each other") and the other two — Switcheroo's
+    // "swap the Might of two units" and Bonds of Strength's "give two friendly
+    // units each +1" — are ONE instruction naming a group, where two members of a
+    // group are two objects (355.11). Two instructions is the dividing line, not
+    // the presence of the word.
     //
     // # `min: 1`, and the `[Level 6]` slot
     //
@@ -1000,6 +1008,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
       min: 1,
       scope: "anywhere",
       asymmetricSlots: true,
+      slotsMayCoincide: true,
       secondSlotLevel: SKYWARD_STRIKE_LEVEL,
     },
     resolve: (state, ctx, event) => {

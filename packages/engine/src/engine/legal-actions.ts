@@ -1528,7 +1528,10 @@ export function legalActions(state: GameState): PlayerAction[] {
         targeting.secondSlotLevel === undefined || state.players[playerIndex].xp >= targeting.secondSlotLevel;
       for (const [i, first] of secondSlotActive ? firstSlot.entries() : []) {
         for (const [j, second] of secondSlot.entries()) {
-          if (first.instanceId === second.instanceId) continue;
+          // The two slots are DISTINCT units unless the card says otherwise —
+          // see `TargetingSpec.slotsMayCoincide` for why that is opt-in and which
+          // card opts in.
+          if (targeting.slotsMayCoincide !== true && first.instanceId === second.instanceId) continue;
           if (symmetric && j < i) continue; // keep one ordering of each pair
           if (targeting.sameBattlefield && !shareABattlefield(state, first.instanceId, second.instanceId)) continue;
           // Public Execution — "an enemy unit with LESS Might than it". Filtered

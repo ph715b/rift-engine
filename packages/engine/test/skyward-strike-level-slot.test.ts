@@ -110,12 +110,20 @@ describe("at the level, both slots are offered", () => {
     expect(moveOnly(board(LEVEL)).length, "the move-only play disappeared at the level").toBeGreaterThan(0);
   });
 
-  it("never names the same unit twice", () => {
-    for (const play of withStun(board(LEVEL))) {
-      expect(play.targetUnitInstanceId, "a play named one unit for both slots").not.toBe(
-        play.secondTargetUnitInstanceId,
-      );
-    }
+  /**
+   * **INVERTED 2026-08-23.** This asserted that no play names one unit for both
+   * slots — true of almost every slot card, and not of this one. Its two slots
+   * are two SEPARATE INSTRUCTIONS ("Move an enemy unit", "[Level 6] Stun an enemy
+   * unit"), each choosing independently, so moving a unit and then stunning that
+   * same unit is a line the card allows. See the `slotsMayCoincide` block below,
+   * which now owns the positive assertion.
+   *
+   * Kept and pointed the other way rather than deleted, because the flag is
+   * opt-in and this is where a regression that dropped it would surface.
+   */
+  it("DOES offer the same unit twice — its two slots are separate instructions", () => {
+    const selfPairs = withStun(board(LEVEL)).filter((p) => p.targetUnitInstanceId === p.secondTargetUnitInstanceId);
+    expect(selfPairs.length, "the self-pair is no longer offered — slotsMayCoincide was dropped").toBeGreaterThan(0);
   });
 });
 
@@ -184,11 +192,80 @@ describe("the RESOLVER still checks, and that is not redundant", () => {
 
   it("...and keeps it when the XP stays — the control", () => {
     const state = board(LEVEL);
-    const withStunPlay = withStun(state)[0]!;
+    // A DISTINCT pair on purpose: a self-pair MOVES its target, so looking for it
+    // at bf1 afterwards would fail for a reason that has nothing to do with XP.
+    const withStunPlay = withStun(state).find((p) => p.targetUnitInstanceId !== p.secondTargetUnitInstanceId)!;
     const settled = resolveHeldTriggers(submit(state, withStunPlay).state);
     const stunned = [...(settled.battlefields[0]?.units.p2 ?? [])].find(
       (u) => u.instanceId === withStunPlay.secondTargetUnitInstanceId,
     );
     expect(stunned?.stunned, "the stun never fires at all, so the assertion above proves nothing").toBe(true);
+  });
+});
+
+/**
+ * **The same enemy unit may fill BOTH slots — fixed 2026-08-23.**
+ *
+ * `legal-actions` excluded the pair where slot 0 and slot 1 name one unit, for
+ * every slot card. That is what almost every one of them says: of the 11 whose
+ * two slots share a role, 8 print a distinctness word — "another" (Convergent
+ * Mutation, Deathgrip, Defiant Dance, Smoke and Mirrors, Dragon's Rage, Piercing
+ * Light), "other" (Kinkou Monk) or "each other" (Clash of Giants).
+ *
+ * **Skyward Strike is two SEPARATE INSTRUCTIONS** — "Move an enemy unit" and
+ * "[Level 6] Stun an enemy unit" — each choosing independently, with nothing
+ * linking them. Moving a unit out of a fight and then stunning that same unit is
+ * a line the card allows, and it was unreachable.
+ *
+ * The other two same-role cards without the word are ONE instruction naming a
+ * group ("swap the Might of two units", "give two friendly units each +1"), where
+ * two members of a group are two objects (355.11) — so the dividing line is the
+ * instruction count, not the presence of the word, and Skyward Strike is the only
+ * card in the pool that opts in.
+ */
+describe("the same unit may be moved and then stunned (slotsMayCoincide)", () => {
+  it("offers the self-pair at the level", () => {
+    const offered = withStun(board(LEVEL)).filter((a) => a.targetUnitInstanceId === a.secondTargetUnitInstanceId);
+    expect(offered.length, "moving a unit and stunning that same unit was never offered").toBeGreaterThan(0);
+  });
+
+  it("still offers the DISTINCT pairs too — the widening adds, it does not replace", () => {
+    // The control. A change that only ever produced self-pairs would satisfy the
+    // assertion above and delete every real play the card had.
+    const distinct = withStun(board(LEVEL)).filter((a) => a.targetUnitInstanceId !== a.secondTargetUnitInstanceId);
+    expect(distinct.length, "the distinct pairings vanished").toBeGreaterThan(0);
+  });
+
+  it("and the self-pair really resolves — the unit moves AND is stunned", () => {
+    const state = board(LEVEL);
+    const self = withStun(state).find((a) => a.targetUnitInstanceId === a.secondTargetUnitInstanceId)!;
+    const settled = resolveHeldTriggers(submit(state, self).state);
+    const target = settled.battlefields
+      .flatMap((bf) => bf.units.p2 ?? [])
+      .concat(settled.players[1]!.baseUnits)
+      .find((u) => u.instanceId === self.targetUnitInstanceId);
+    expect(target, "the target vanished entirely").toBeDefined();
+    expect(target?.stunned, "the unit was moved but never stunned").toBe(true);
+  });
+
+  it("does NOT widen a card that prints \"another\" — Deathgrip still needs two", () => {
+    // The scope control: the flag is opt-in, and a change that had loosened the
+    // shared enumerator for everyone would show here.
+    const state = makeState({ phase: "Action", activePlayerIndex: 0 });
+    state.players[0]!.baseUnits = [makeUnit({ instanceId: "a", name: "A" }), makeUnit({ instanceId: "b", name: "B" })];
+    state.players[0]!.hand = [createCardInstance(registry.get("SFD-163"))];
+    state.players[0]!.channeled = Array.from({ length: 14 }, (_, i) => ({
+      id: `r${i}`,
+      domain: (["Calm", "Fury", "Mind", "Body", "Chaos", "Order"] as const)[i % 6]!,
+      state: "Ready" as const,
+    }));
+    const grips = legalActions(state).filter(
+      (a): a is PlayCardAction => a.type === "PlayCard" && a.card.defId === "SFD-163",
+    );
+    expect(grips.length, "Deathgrip was never offered at all").toBeGreaterThan(0);
+    expect(
+      grips.some((a) => a.targetUnitInstanceId === a.secondTargetUnitInstanceId),
+      "Deathgrip offered the same unit as victim and beneficiary, and it prints \"another\"",
+    ).toBe(false);
   });
 });

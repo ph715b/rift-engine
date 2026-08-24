@@ -79,10 +79,22 @@ const unitOf = (state: GameState, id: string): UnitInstance =>
   )!;
 
 describe("Skyward Strike: the move, and the destinations it is offered", () => {
-  it("offers both orderings of the pair — the slots are NOT interchangeable", () => {
+  /**
+   * **The self-pairs joined this list on 2026-08-23.** The card's two slots are
+   * two SEPARATE INSTRUCTIONS — "Move an enemy unit" and "[Level 6] Stun an enemy
+   * unit" — each choosing independently, so moving a unit and then stunning that
+   * same unit is a line it allows. `legal-actions` excluded every same-unit pair
+   * for every slot card; `TargetingSpec.slotsMayCoincide` is the opt-in, and this
+   * is the only card in the pool that takes it.
+   *
+   * Left as an EXHAUSTIVE list rather than loosened to a `toContain`: the point
+   * of this assertion is the whole offered set, and a widening that also dropped
+   * or duplicated a distinct pairing would slip past a subset check.
+   */
+  it("offers both orderings of the pair, and the self-pairs — the slots are NOT interchangeable", () => {
     expect(shapes(board(LEVEL).state)).toEqual([
-      "a/-->base", "a/-->bf2", "a/b->base", "a/b->bf2",
-      "b/-->base", "b/-->bf2", "b/a->base", "b/a->bf2",
+      "a/-->base", "a/-->bf2", "a/a->base", "a/a->bf2", "a/b->base", "a/b->bf2",
+      "b/-->base", "b/-->bf2", "b/a->base", "b/a->bf2", "b/b->base", "b/b->bf2",
     ].sort());
   });
 

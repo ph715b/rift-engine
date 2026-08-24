@@ -412,7 +412,12 @@ function targetingRejection(
     if (choices.targetUnitInstanceId === undefined && choices.secondTargetUnitInstanceId !== undefined) {
       return `${cardName}'s second target requires a first target`;
     }
-    if (filled.length === 2 && filled[0] === filled[1]) {
+    // The two slots are DISTINCT units unless the card says otherwise. Asked
+    // here as well as in `legal-actions`, and the two read the SAME flag — this
+    // pair is exactly the shape that has produced three offered-then-refused
+    // bugs in this repo, and widening only the enumerator would have made a
+    // fourth. See `TargetingSpec.slotsMayCoincide`.
+    if (targeting.slotsMayCoincide !== true && filled.length === 2 && filled[0] === filled[1]) {
       return `${cardName} requires two different units`;
     }
     // 355.8 with 824.1.d — a [Level N] second clause that is Inactive offers no

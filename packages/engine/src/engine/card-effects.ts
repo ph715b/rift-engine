@@ -335,6 +335,28 @@ export type TargetingSpec =
        */
       asymmetricSlots?: true;
       /**
+       * The SAME unit may fill BOTH slots.
+       *
+       * `legal-actions` excludes the pair where slot 0 and slot 1 name one unit,
+       * and for almost every slot card that is what the CARD says: 8 of the 11
+       * whose two slots share a role print a distinctness word — "another"
+       * (Convergent Mutation, Deathgrip, Defiant Dance, Smoke and Mirrors,
+       * Dragon's Rage, Piercing Light), "other" (Kinkou Monk) or "each other"
+       * (Clash of Giants).
+       *
+       * **The dividing line is how many INSTRUCTIONS name a unit, not whether the
+       * word appears.** "Choose two units" and "give two friendly units each +1"
+       * are ONE instruction naming a group, and two members of a group are two
+       * objects — 355.11 treats such a group as a whole. Skyward Strike is two
+       * separate sentences, "Move an enemy unit" and "[Level 6] Stun an enemy
+       * unit", each choosing independently; nothing links them, so moving a unit
+       * and then stunning that same unit is a line the card allows.
+       *
+       * Opt-IN, so every other slot card keeps the exclusion, and the only card
+       * that widens is the one whose text actually permits it.
+       */
+      slotsMayCoincide?: true;
+      /**
        * The SECOND slot is chosen at the FIRST target's DESTINATION — Dragon's
        * Rage's "move an enemy unit. Then do this: choose another enemy unit at
        * its destination."
