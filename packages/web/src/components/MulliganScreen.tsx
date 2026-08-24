@@ -1,9 +1,12 @@
-import { useState, type CSSProperties } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 import type { CardInstance } from "@rift-engine/engine";
 import { CardView } from "./CardView.js";
 
 interface MulliganScreenProps {
   hand: CardInstance[];
+  /** The Restart / Main Menu pair, rendered by the caller — this screen owns
+   *  the mulligan, not what leaving a match means. */
+  exitControls?: ReactNode;
   /** Does the human take the first turn? Turn order is rolled per game (rule
    *  115), so this is genuinely unknown until now — and it belongs on THIS
    *  screen rather than only in the board header, because it's information the
@@ -23,7 +26,7 @@ interface MulliganScreenProps {
  *  execute-mulligan.ts). Clicking past 2 silently no-ops rather than
  *  erroring, matching the "cap, don't error" feel of this app's other
  *  toggle-based selection UIs (e.g. the manual rune-payment feature). */
-export function MulliganScreen({ hand, humanGoesFirst, seriesNote, onConfirm }: MulliganScreenProps) {
+export function MulliganScreen({ hand, humanGoesFirst, seriesNote, onConfirm, exitControls }: MulliganScreenProps) {
   const [setAside, setAside_] = useState<Set<string>>(new Set());
 
   function toggle(instanceId: string) {
@@ -40,6 +43,7 @@ export function MulliganScreen({ hand, humanGoesFirst, seriesNote, onConfirm }: 
       <div className="header">
         <h1>Rift-Engine</h1>
         <span>Mulligan{seriesNote ? ` · ${seriesNote}` : ""}</span>
+        {exitControls}
       </div>
 
       {/* The card count drives the width half of the card size (see

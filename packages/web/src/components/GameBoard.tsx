@@ -60,6 +60,7 @@ import { CardView, type DragPoint } from "./CardView.js";
 import { BattlefieldView } from "./BattlefieldView.js";
 import { ChoiceOverlay } from "./ChoiceOverlay.js";
 import { DecisionPrompt } from "./DecisionPrompt.js";
+import { GameExitControls } from "./GameExitControls.js";
 import { RematchPanel } from "./RematchPanel.js";
 import { PlayerSideColumn } from "./PlayerSideColumn.js";
 import { BoardPiles } from "./BoardPiles.js";
@@ -2369,6 +2370,25 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     };
   })();
 
+  /**
+   * Restart / Main Menu, on EVERY surface of a match.
+   *
+   * Reported by the project owner: "I want to be able to restart the game or
+   * leave to main menu." Both actions existed and neither was reachable until the
+   * match was over — `onMainMenu` reached only `RematchPanel` and `SeriesPanel`.
+   * A player who started a match was trapped in it, pregame screens included.
+   *
+   * Built once and passed down, so the confirm step cannot drift between the
+   * three headers that render it.
+   *
+   * **Restart means a fresh MATCH, not a replayed game.** `startNewMatch` takes a
+   * new seed and a fresh series, which is what "start over" means mid-match; a
+   * "replay this game" would have to decide what happens to the series score and
+   * to 486.5's retired battlefields, and neither has an answer the player asked
+   * for.
+   */
+  const exitControls = <GameExitControls onRestart={() => startNewMatch(config)} onMainMenu={onMainMenu} />;
+
   if (pregame === "selectBattlefield") {
     return (
       <BattlefieldSelect
@@ -2376,6 +2396,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
         used={series.humanUsedBattlefields}
         seriesNote={seriesNote ?? ""}
         onSelect={handleBattlefieldSelect}
+        exitControls={exitControls}
       />
     );
   }
@@ -2387,6 +2408,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
         humanGoesFirst={pregameState!.firstPlayerIndex === HUMAN_INDEX}
         {...(seriesNote ? { seriesNote } : {})}
         onConfirm={handleMulliganConfirm}
+        exitControls={exitControls}
       />
     );
   }
@@ -2430,6 +2452,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
             the existing turn/phase text is matched verbatim by the throwaway
             Playwright drivers, and there's no reason to move it. */}
         {seriesNote && <span className="header-series">{seriesNote}</span>}
+        {exitControls}
         {unplayableNotice && <span className="header-notice">{unplayableNotice}</span>}
       </div>
 

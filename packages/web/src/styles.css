@@ -2647,6 +2647,40 @@ button:disabled {
   color: var(--color-text-dim);
 }
 
+/* Restart / Main Menu, in the header of every surface of a match — the board's
+   and both pregame screens'. See GameExitControls for why the confirm is inline
+   rather than a modal.
+
+   `margin-left: auto` rather than a new flex order: the header is
+   `justify-content: space-between` and already carries a variable number of
+   spans (the series note, the unplayable notice), so pinning these to the right
+   edge is what keeps them in the same place whatever else is showing. */
+.header-exit {
+  flex: 0 0 auto;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.header-exit button {
+  font-size: 0.8rem;
+  padding: 0.2rem 0.55rem;
+}
+
+/* The sentence that says what is about to be lost. Sits with the buttons rather
+   than on its own line, because it is only ever up for the one click it takes to
+   answer — a full-width row would reflow the whole header for that moment. */
+.header-exit-prompt {
+  font-size: 0.8rem;
+  color: var(--color-danger);
+}
+
+.header-exit-confirm {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
 .header-series {
   flex: 0 0 auto;
   font-size: 0.9rem;

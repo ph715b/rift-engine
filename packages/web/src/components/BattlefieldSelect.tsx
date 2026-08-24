@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { battlefieldCard } from "../battlefield-cards.js";
 import { useCardHover } from "../hover-preview.js";
 
@@ -10,6 +11,9 @@ interface BattlefieldSelectProps {
   /** "Game 2 of 3 — you lead 1–0", or similar. */
   seriesNote: string;
   onSelect: (name: string) => void;
+  /** The Restart / Main Menu pair. Rendered by the caller so this screen stays
+   *  ignorant of what leaving a match means — it only owns the choice. */
+  exitControls?: ReactNode;
 }
 
 /**
@@ -31,7 +35,7 @@ interface BattlefieldSelectProps {
  * mulligans: nothing here gives it an evaluative basis to prefer one of its own
  * battlefields over another.
  */
-export function BattlefieldSelect({ names, used, seriesNote, onSelect }: BattlefieldSelectProps) {
+export function BattlefieldSelect({ names, used, seriesNote, onSelect, exitControls }: BattlefieldSelectProps) {
   const available = names.filter((name) => !used.includes(name));
   const setHovered = useCardHover();
 
@@ -40,6 +44,7 @@ export function BattlefieldSelect({ names, used, seriesNote, onSelect }: Battlef
       <div className="header">
         <h1>Rift-Engine</h1>
         <span>Choose your battlefield · {seriesNote}</span>
+        {exitControls}
       </div>
 
       <div className="mulligan-screen">
