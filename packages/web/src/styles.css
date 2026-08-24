@@ -3224,7 +3224,7 @@ button:disabled {
 /* Yours but not yet playable (811's "beginning on the next turn") stays legible
    rather than greyed to nothing: the reason is in the title, and a card the
    player cannot find is worse than one they cannot click. */
-.facedown-card.mine:disabled {
+.facedown-card.mine[aria-disabled="true"] {
   opacity: 0.85;
 }
 

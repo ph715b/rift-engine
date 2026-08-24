@@ -3,6 +3,7 @@ import { CardView, type DragPoint } from "./CardView.js";
 import { useRowFit } from "./use-row-fit.js";
 import { battlefieldCard } from "../battlefield-cards.js";
 import { useCardHover } from "../hover-preview.js";
+import { defaultCardRegistry } from "@rift-engine/engine";
 import type { BattlefieldState, PlayerState, UnitInstance } from "@rift-engine/engine";
 
 interface BattlefieldViewProps {
@@ -131,7 +132,23 @@ export function BattlefieldView({
    * **The `mine` branch is load-bearing and must not be collapsed.** Nothing masks
    * this state — `h.card` carries the real identity for BOTH players — so this
    * branch IS what keeps the opponent's facedown card secret, in the label, the
-   * title and the alt text alike.
+   * title, the alt text and now the HOVER PREVIEW alike.
+   *
+   * # Hovering your own shows the card
+   *
+   * Reported by the project owner: *"want to be able to hover over hidden cards
+   * and see the card info."* A `title` tooltip carried the name and nothing else,
+   * so the one thing a player needs before spending a turn setting a trap — what
+   * the card actually does — was unreadable once it was face down.
+   *
+   * The preview is raised for YOUR OWN facedown cards only, through the same
+   * `useCardHover` channel every other card on the board uses. The opponent's
+   * attaches no handler at all: hovering it raises nothing, and the previous
+   * card's own `onMouseLeave` has already cleared the overlay, so the result is
+   * an empty preview rather than a stale one. **Attaching a handler that fired
+   * with `h.card` for both sides would leak the whole card**, which is precisely
+   * what the `mine` branch exists to stop — so the guard is repeated here rather
+   * than assumed from the label above it.
    */
   function facedownCards(ownerIndex: 0 | 1) {
     return battlefield.hiddenCards
@@ -139,12 +156,36 @@ export function BattlefieldView({
       .map((h) => {
         const mine = h.ownerIndex === humanIndex;
         const playable = mine && onPlayHidden !== undefined && playableHiddenIds?.has(h.card.instanceId);
+        // Only ever built for YOUR OWN card — see the secrecy note above.
+        const previewProps = mine
+          ? {
+              onMouseEnter: () =>
+                setHovered({ card: h.card, def: defaultCardRegistry().tryGet(h.card.defId) }),
+              onMouseLeave: () => setHovered(null),
+              // Keyboard parity: these are real buttons and Tab reaches them, so
+              // a preview only the mouse can raise is half a feature.
+              onFocus: () => setHovered({ card: h.card, def: defaultCardRegistry().tryGet(h.card.defId) }),
+              onBlur: () => setHovered(null),
+            }
+          : {};
         return (
           <button
             key={h.card.instanceId}
             type="button"
             className={`facedown-card${mine ? " mine" : ""}${playable ? " selectable" : ""}`}
-            disabled={!playable}
+            {...previewProps}
+            // **`aria-disabled`, not `disabled`** — a genuinely disabled button
+            // dispatches no pointer events and is not focusable, so the hover
+            // preview above would be dead for exactly the card you most want to
+            // read: one hidden THIS turn, which 811 makes unplayable until your
+            // next. Measured, not assumed — the first version used `disabled` and
+            // the preview test failed on a card that rendered perfectly.
+            //
+            // The click is already guarded (`onClick` is undefined unless
+            // `playable`), so this changes nothing about what can be pressed. The
+            // dimming moved from `:disabled` to `[aria-disabled="true"]` in
+            // styles.css with it.
+            aria-disabled={!playable}
             title={
               mine
                 ? playable

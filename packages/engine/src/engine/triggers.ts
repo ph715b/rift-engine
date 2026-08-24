@@ -2132,6 +2132,22 @@ export interface SelfEvent {
   kind: SelfEventKind;
   card: CardInstance;
   ownerIndex: 0 | 1;
+  /**
+   * The battlefield this card was hidden at, when the play was a from-HIDDEN
+   * one. Absent for every ordinary play, which is what "when you play this from
+   * face down" has to be able to tell apart.
+   *
+   * Carried on the event rather than re-derived at resolution, because by then
+   * the card has already left the hidden zone (`removeFromHiddenZone` runs as
+   * part of the play) and nothing on the board records where it came from.
+   *
+   * It is also the battlefield the card's own choices are narrowed to —
+   * **811.1.d.2**, "if a hidden spell or a play effect of a hidden permanent
+   * chooses any targets, those targets must be chosen from among options at that
+   * battlefield". Edge of Night's printed "(here)" is that rule quoted on the
+   * card.
+   */
+  fromHiddenBattlefieldId?: string;
 }
 
 export type SelfEventEffect = (state: GameState, event: SelfEvent) => GameState;
@@ -2173,10 +2189,22 @@ export function selfTriggerDefIds(): string[] {
  * Returns the state unchanged when the card has no trigger for this moment, so
  * every site can call it unconditionally.
  */
-export function holdSelfTrigger(state: GameState, kind: SelfEventKind, card: CardInstance, ownerIndex: 0 | 1): GameState {
+export function holdSelfTrigger(
+  state: GameState,
+  kind: SelfEventKind,
+  card: CardInstance,
+  ownerIndex: 0 | 1,
+  /** See `SelfEvent.fromHiddenBattlefieldId`. Only the play path knows it. */
+  fromHiddenBattlefieldId?: string,
+): GameState {
   const trigger = allSelfTriggers()[card.defId];
   if (!trigger || !trigger.on.includes(kind)) return state;
-  const event: SelfEvent = { kind, card, ownerIndex };
+  const event: SelfEvent = {
+    kind,
+    card,
+    ownerIndex,
+    ...(fromHiddenBattlefieldId !== undefined ? { fromHiddenBattlefieldId } : {}),
+  };
   const entry: TriggerChainEntry = {
     kind: "trigger",
     source: "selfTrigger",

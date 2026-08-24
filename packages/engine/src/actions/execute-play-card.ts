@@ -187,7 +187,10 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
   // FIRST — which is exactly where it sat while it was dispatched inline. Any
   // other position would silently reorder every card that watches its own play
   // against the permanents watching the same moment.
-  return holdSelfTrigger(withEvent, "played", action.card, action.playerIndex);
+  // The from-hidden battlefield rides along so a "when you play this from face
+  // down" trigger can tell the two plays apart and narrow its own choices to
+  // that battlefield (811.1.d.2). Absent for every ordinary play.
+  return holdSelfTrigger(withEvent, "played", action.card, action.playerIndex, action.fromHiddenBattlefieldId);
 }
 
 /** Takes a from-hidden card off its battlefield. A no-op for an ordinary play. */

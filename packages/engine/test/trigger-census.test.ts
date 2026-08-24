@@ -194,7 +194,7 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     expect(inline).toEqual(["OGN-101", "OGN-109", "OGN-251", "UNL-084", "UNL-088", "VEN-005", "VEN-006", "VEN-108"]);
   });
 
-  it("381 held / 8 inline of 389 trigger cards", () => {
+  it("382 held / 8 inline of 390 trigger cards", () => {
     const all = allTriggerCards(knownCardIds);
     const inline = new Set([...inlineEventTriggerDefIds(), ...legendInlineTriggerDefIds()]);
     const held = [...all].filter((defId) => !inline.has(defId));
@@ -749,10 +749,22 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // number moved at all: `becameEmpowered` is fired from `empowerPermanent`,
     // the single WRITER of the status, so any card that empowers reaches her.
     // HELD, like every trigger with a choice attached.
+    // **381/8/389 -> 382/8/390 on 2026-08-23: Edge of Night (SFD-139).** One card
+    // and one entry:
+    //
+    //     selfTrigger (+1)  SFD-139 Edge of Night — "when you play this from face
+    //                       down, attach it to a unit you control (here)"
+    //     distinct: 1, and no alternate printing registers separately
+    //
+    // **It is a card that was already in the pool and already reported
+    // implemented** — a Gear with an `[Equip]` and an art-only Might badge is
+    // enough for `isCardImplemented`, so its whole first sentence was missing
+    // while nothing could see it. Reported by the project owner, not by an
+    // instrument. `inline` did not move: a self-trigger is held like every other.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 381,
+      held: 382,
       inline: 8,
-      cards: 389,
+      cards: 390,
     });
   });
 

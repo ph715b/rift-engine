@@ -50,7 +50,7 @@ import {
   takeControlOfUnit,
 } from "../effect-helpers.js";
 import { eligibleTargets, findUnitAnywhere, ownerIndexOf, unitWithinMaxMight, type UnitZone } from "../target-lookup.js";
-import { effectiveTagsOf } from "../equipment.js";
+import { attachEquipment, effectiveTagsOf } from "../equipment.js";
 import { findUnitOnBattlefield } from "../target-lookup.js";
 import { empowerPermanent } from "../effect-helpers.js";
 import { SHADOW_CLONE_TOKEN_DEF_ID } from "../constants.js";
@@ -179,6 +179,20 @@ const UP_FROM_THE_DEEP_TENTACLES = 2;
  *  is SILENT: a definition keyed to a kind nobody parks simply never runs. */
 const MEL_DEFIANT_MAX_MIGHT = 3;
 const MEL_DEFIANT_BANISH = "VEN-110-banish";
+
+/** Edge of Night (SFD-139) — a `[Hidden]` Equipment that attaches itself when it
+ *  is played from face down. */
+const EDGE_OF_NIGHT = "SFD-139";
+/** Its from-hidden attach question. */
+const EDGE_OF_NIGHT_ATTACH = `${EDGE_OF_NIGHT}-attach`;
+
+/** `playerIndex`'s units standing at one battlefield. Local rather than shared
+ *  for the reason every other per-domain helper here is: the walk is three lines
+ *  and a shared one would be a shared-file edit. */
+function ownUnitsAtBattlefield(state: GameState, playerIndex: 0 | 1, battlefieldId: string) {
+  const bf = state.battlefields.find((b) => b.id === battlefieldId);
+  return bf?.units[state.players[playerIndex].id] ?? [];
+}
 
 /**
  * The units Mel, Defiant Soul may banish — enemy, AT A BATTLEFIELD, 3 Might or
@@ -3546,6 +3560,67 @@ function ownUnitsElsewhere(state: GameState, playerIndex: 0 | 1, battlefieldId: 
  *  by that card's own defId, because at those moments it may not be in play for
  *  a listener walk to reach (see triggers.ts's SelfTriggerDefinition). */
 export const selfTriggers: Record<string, SelfTriggerDefinition> = {
+  [EDGE_OF_NIGHT]: {
+    /**
+     * Edge of Night — "**When you play this from face down, attach it to a unit
+     * you control (here).**" Plus a printed `[Equip] [Chaos]`, which is the
+     * ordinary way to wear it and lives in activated-abilities.ts.
+     *
+     * **Reported by the project owner, and the clause did NOTHING.** The card
+     * reported fully implemented with no partial note — it is a Gear with an
+     * `[Equip]` and an art-only Might badge, and that is enough for
+     * `isCardImplemented` — so nothing could see that its whole first sentence
+     * was missing. The silently-inert-printing shape this repo keeps finding.
+     *
+     * # From FACE DOWN only
+     *
+     * `event.fromHiddenBattlefieldId` is absent for an ordinary play, which is
+     * exactly the distinction the sentence draws — played from hand it attaches
+     * nothing and you pay its `[Equip]` like any other Equipment.
+     *
+     * # "(here)" is 811.1.d.2 printed on the card
+     *
+     * "If a hidden spell or a play effect of a hidden permanent chooses any
+     * targets, those targets must be chosen from among options at that
+     * battlefield." So the choice is narrowed to units at the battlefield it was
+     * hidden at, and the parenthesis is the rule rather than an extra
+     * restriction.
+     *
+     * # Mandatory, and 055 when there is nobody to wear it
+     *
+     * No "you may" is printed, so this is not a decline-able offer — but with no
+     * friendly unit at that battlefield there is nothing to attach to, and 055
+     * ("do as much as you can, ignoring impossible instructions") makes that a
+     * no-op rather than an illegal play. The gear stays in `activeGear`
+     * unattached, which is where an unworn Equipment lives anyway.
+     */
+    on: ["played"],
+    resolve: (state, event) => {
+      const battlefieldId = event.fromHiddenBattlefieldId;
+      // An ordinary play attaches nothing.
+      //
+      // **This line is enforced by the COMPILER, not by a runtime difference, and
+      // that is worth stating.** Deleting it and running the suite is GREEN —
+      // `ownUnitsAtBattlefield(state, i, undefined)` finds no battlefield and
+      // returns `[]`, so a hand play parks nothing either way. It fails
+      // `npm run typecheck` in two places instead: it is what narrows
+      // `string | undefined` to `string` for the lookup and for the decision
+      // seed under `exactOptionalPropertyTypes`. A mutant that removes it
+      // "survives" only a check that cannot see it — vitest does not typecheck.
+      if (battlefieldId === undefined) return state;
+      // Asked as a DECISION rather than on the action, the same shape and for the
+      // same reason as Spirit's Refuge: a Gear carries no targeting of its own on
+      // the PlayCard action.
+      return ownUnitsAtBattlefield(state, event.ownerIndex, battlefieldId).length === 0
+        ? state
+        : parkDecision(state, {
+            kind: EDGE_OF_NIGHT_ATTACH,
+            playerIndex: event.ownerIndex,
+            cardInstanceId: event.card.instanceId,
+            battlefieldId,
+          });
+    },
+  },
   "VEN-108": {
     // Forgotten Relic — the "WHEN YOU PLAY THIS" half. Its Beginning-Phase half is
     // an `eventTriggers` entry above, and that entry records why the two cannot
@@ -3788,6 +3863,24 @@ function unitsInAnyTrash(state: GameState): { instanceId: string; name: string; 
 }
 
 export const decisions: Record<string, DecisionDefinition> = {
+  [EDGE_OF_NIGHT_ATTACH]: {
+    /** Edge of Night's from-hidden attach. Narrowed to the battlefield it was
+     *  hidden at (811.1.d.2, and the card's own "(here)"), and rebuilt from LIVE
+     *  state so a unit that left while this waited is no longer an answer. */
+    prompt: () => "Edge of Night: attach it to a unit you control here",
+    options: (state, d) =>
+      ownUnitsAtBattlefield(state, d.playerIndex, d.battlefieldId ?? "").map((u) => ({
+        id: u.instanceId,
+        label: u.name,
+        instanceId: u.instanceId,
+      })),
+    // Through `attachEquipment`, the single writer of `attachedToInstanceId` —
+    
+    // so the wear triggers (Jax - Unrelenting, Aphelios - Exalted) fire for this
+    // attach exactly as they do for an `[Equip]`.
+    resolve: (state, d, optionId) =>
+      d.cardInstanceId === undefined ? state : attachEquipment(state, d.playerIndex, d.cardInstanceId, optionId),
+  },
   [MEL_DEFIANT_BANISH]: {
     // Mel, Defiant Soul's banish. MANDATORY — no "you may" is printed — so there
     // is no decline option and the only choice is WHICH.
