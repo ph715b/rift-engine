@@ -207,26 +207,29 @@ describe("Heedless Resurrection (UNL-142): kill a friendly unit, play a no-large
     expect(ids).toHaveLength(2);
   });
 
-  // ***THIS TEST ASSERTS TWO WRONG ANSWERS ON PURPOSE, and they are NOT this
-  // card's.***
+  // ***INVERTED 2026-08-23 — this used to assert two WRONG answers on purpose,
+  // and the gap it named is now closed.***
   //
   // **124.1**: "Whenever a Game Object changes zones to or from a Non-Board Zone,
   // all Temporary Modifications of all kinds cease to be tracked on it in all
   // capacities", with the rule's own examples reading "Damage is cleared.
   // Counters are removed. Granted Keywords are no longer granted."
   //
-  // `effect-helpers.completeDeath` files the UNCHANGED instance into the trash —
-  // it strips the Buff (705) and nothing else — so a unit that dies damaged and
-  // comes back is still damaged, and a this-turn pump rides along with it.
-  // `returnUnitToHand` clears both on its own path, so the two zone exits
-  // disagree.
+  // `effect-helpers.completeDeath` filed the UNCHANGED instance into the trash —
+  // it stripped the Buff (705) and nothing else — so a unit that died damaged
+  // came back still damaged, with a this-turn pump riding along. Every "play a
+  // unit from your trash" in the pool reached it (Soulgorger, The Harrowing, Last
+  // Rites, Fizz - Trickster).
   //
-  // PRE-EXISTING and shared: every "play a unit from your trash" in the pool
-  // reaches it (Soulgorger, The Harrowing, Last Rites, Fizz - Trickster), and the
-  // fix is in effect-helpers.ts, which this wave may not edit. Pinned here
-  // because Heedless Resurrection is the card that makes it cheap and repeatable
-  // — kill your own damaged body and raise it in the same breath.
-  it("PINNED WRONG (124.1, shared): the raised victim keeps its damage and its this-turn pump", () => {
+  // Both exits now go through `effect-helpers.stripTemporaryModifications`, one
+  // function for one rule — and BOTH were incomplete before it: the "correct"
+  // `returnUnitToHand` path was silent on `extraBuffs`, `baseMightThisTurn`,
+  // `empowered` and `unchooseableByEnemiesThisTurn`.
+  //
+  // Kept and pointed the other way rather than deleted: this card is what makes
+  // the flicker cheap and repeatable — kill your own damaged body and raise it in
+  // the same breath — so it is the natural place for the rule to regress.
+  it("124.1: the raised victim comes back CLEAN — damage and this-turn pump gone", () => {
     const { state, spell, victim } = resurrectionState();
     state.players[0]!.baseUnits = [{ ...victim, damage: 2, mightThisTurn: 3 }];
     state.players[0]!.trash = []; // only the corpse can answer, so no pick is needed
@@ -236,8 +239,8 @@ describe("Heedless Resurrection (UNL-142): kill a friendly unit, play a no-large
 
     const back = inPlay(after, victim.instanceId);
     expect(back, "the victim did not come back").toBeDefined();
-    expect(back!.damage, "124.1 has been implemented — flip this test's premise").toBe(2);
-    expect(back!.mightThisTurn, "124.1 has been implemented — flip this test's premise").toBe(3);
+    expect(back!.damage, "damage survived a trip through the trash (124.1)").toBe(0);
+    expect(back!.mightThisTurn, "a this-turn pump survived a trip through the trash (124.1)").toBe(0);
     // These two ARE right, and they are the positive control that the flicker
     // really happened rather than the unit never having left.
     expect(back!.exhausted, "it should re-enter exhausted (143.4)").toBe(true);

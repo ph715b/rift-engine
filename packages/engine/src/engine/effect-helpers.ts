@@ -439,7 +439,9 @@ export function completeDeath(state: GameState, death: PendingDeath): GameState 
   // trigger here is held after it is decided: the fact is about the kill, and the
   // response window belongs to the chain.
   const bySpell = state.spellResolvingForIndex !== null && death.killerIndex === state.spellResolvingForIndex;
-  const trashed: UnitInstance = unit.buffed ? { ...unit, buffed: false } : unit;
+  // 124.1: a Non-Board Zone strips every Temporary Modification, not just the
+  // Buff this line used to take. See `stripTemporaryModifications`.
+  const trashed: UnitInstance = stripTemporaryModifications(unit);
   // The per-turn tally is bumped HERE rather than in killUnit, so a death that
   // was replaced (Sett) or warded (Highlander) does not count — neither of those
   // is a unit dying, and Spoils of War prices itself off units that actually did.
@@ -2715,6 +2717,65 @@ export function returnPermanentToHand(state: GameState, instanceId: string): Gam
  *  from it") since
  *  it's leaving play entirely and may be replayed fresh, unlike
  *  recallUnitToBase (which keeps a unit "in play," just relocated). */
+/**
+ * **124.1 — everything a Game Object stops tracking when it crosses to or from a
+ * Non-Board Zone.**
+ *
+ * > "Whenever a Game Object changes zones to or from a Non-Board Zone, all
+ * > Temporary Modifications of all kinds cease to be tracked on it in all
+ * > capacities. Examples: **Damage is cleared. Counters are removed.** Granted
+ * > Keywords are no longer granted. **Statuses are cleared.**"
+ *
+ * **124.2** enumerates the statuses, and the ones an instance carries are
+ * Buffed, Empowered and Exhausted. `damage`, `mightThisTurn` and
+ * `unchooseableByEnemiesThisTurn` are Temporary Modifications outright;
+ * `baseMightThisTurn` is 124.2's "any applied Layer alternations" (Dragon
+ * Form's "its base Might becomes 5 this turn"); `extraBuffs` is the Counter.
+ *
+ * # Why this is one function
+ *
+ * **The two zone exits used to disagree, and BOTH were incomplete.**
+ * `completeDeath` stripped only the Buff, so a unit that died with 4 damage came
+ * back from the trash still carrying it — reachable by every play-from-trash
+ * card in the pool (Soulgorger, The Harrowing, Last Rites, Fizz - Trickster).
+ * `returnUnitToHand` cleared damage, this-turn Might, the Buff and Exhausted —
+ * closer, and still silent on `extraBuffs`, `baseMightThisTurn`, `empowered` and
+ * `unchooseableByEnemiesThisTurn`. Two partial answers to one rule is how they
+ * drifted apart in the first place.
+ *
+ * `namedSpell` is deliberately NOT cleared here: Fallen Feline's naming is a
+ * property of the PLAYER's standing ban rather than a modification tracked on
+ * the unit, and her own note records that the ban is asked of where she is
+ * standing when a spell is played.
+ *
+ * # What this does NOT reach, stated rather than hidden
+ *
+ * **124 also says the object "becomes a NEW object for the purposes of tracking
+ * that object", and this engine reuses `instanceId` across the zone change.** So
+ * anything keyed by instance id in `GameState` — the damage-prevention pool,
+ * the death-ward and marked-for-death lists, the movement lock, granted
+ * keywords — survives a trip through a Non-Board Zone that the rules say should
+ * end it. That half is recorded in docs/rules-conformance.md rather than fixed
+ * here, because it is an identity change rather than a field reset.
+ */
+export function stripTemporaryModifications(unit: UnitInstance): UnitInstance {
+  const stripped: UnitInstance = {
+    ...unit,
+    damage: 0,
+    mightThisTurn: 0,
+    buffed: false,
+    exhausted: false,
+  };
+  // Optional keys are DELETED rather than set to a falsy value:
+  // `exactOptionalPropertyTypes` makes a present-but-undefined key a different
+  // type from an absent one, and `baseMightThisTurn` reads `?? unit.might`, so a
+  // present `undefined` would be a different question from an absent key.
+  delete stripped.extraBuffs;
+  delete stripped.baseMightThisTurn;
+  delete stripped.empowered;
+  delete stripped.unchooseableByEnemiesThisTurn;
+  return stripped;
+}
 export function returnUnitToHand(state: GameState, targetInstanceId: string): GameState {
   // 435.4.b — a hand is a NON-BOARD zone, so every Equipment on this unit
   // detaches and stays behind. Before the removal, because `detachAllFrom` finds
@@ -2727,7 +2788,7 @@ export function returnUnitToHand(state: GameState, targetInstanceId: string): Ga
   if (gangplankReplaces(state, targetInstanceId)) return gangplankInstead(state, targetInstanceId);
   const { unit, ownerIndex } = location;
 
-  const returned: UnitInstance = { ...unit, damage: 0, mightThisTurn: 0, buffed: false, exhausted: false };
+  const returned: UnitInstance = stripTemporaryModifications(unit);
   // Ripper's Bay — "when a unit HERE is returned to a player's hand". Raised
   // BEFORE the removal, because the battlefield it was standing at is the whole
   // question and a removed unit has no location. A unit bounced from a BASE

@@ -385,6 +385,20 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
    * have to re-derive a choice the player already made.
    */
   const [firstPlayerChoice, setFirstPlayerChoice] = useState<0 | 1 | undefined>(undefined);
+  /**
+   * The unit a DECISION option is currently pointing at, from hovering or
+   * focusing it in the prompt.
+   *
+   * Reported from playtesting: "with two identical units on board you cannot tell
+   * which one you are equipping." Two Recruit tokens make two options reading
+   * "Recruit"; only the board can say which is which.
+   *
+   * It is folded into `chainTargets.units` below rather than given a highlight of
+   * its own — that Set is already threaded to every unit on the board through
+   * `isChainTargeted`, and the question "which piece does this option mean" is
+   * the same question that co-highlight already answers for a chain item.
+   */
+  const [hoveredDecisionUnitId, setHoveredDecisionUnitId] = useState<string | null>(null);
   // Which pregame step is showing, or "playing" once the board is live. Best
   // of 3 adds a battlefield selection ahead of the mulligan — rule 486.5 puts
   // that selection in Setup, so it runs before EVERY game, not only between
@@ -2164,7 +2178,14 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   // both need to know exactly which phase `pendingPlay` is currently in.
   const pendingResolvedAction = pendingLegalAction();
   const currentStep = pendingStep();
-  const chainTargets = chainHighlight();
+  const chainTargets = (() => {
+    const base = chainHighlight();
+    // A union rather than a replacement: a decision raised BY a chain item should
+    // show both what the item targets and what the option under the pointer means.
+    return hoveredDecisionUnitId === null
+      ? base
+      : { ...base, units: new Set([...base.units, hoveredDecisionUnitId]) };
+  })();
   // A ChoiceOverlay is up. Its backdrop deliberately swallows board clicks,
   // which also puts the actions row out of reach — so the row's own Cancel
   // hides rather than sitting there visibly unpressable (the overlay carries
@@ -2441,9 +2462,15 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
           state={state}
           decision={awaitingHuman}
           readOnly={spectate}
-          onAnswer={(optionId) =>
-            applyAction({ type: "AnswerDecision", playerIndex: HUMAN_INDEX, decisionId: awaitingHuman.id, optionId })
-          }
+          onHoverOption={setHoveredDecisionUnitId}
+          onAnswer={(optionId) => {
+            // Cleared with the answer: the option that raised the highlight is
+            // about to stop existing, and a stale id would leave a unit lit up
+            // under the NEXT question — which is the same confusion this exists
+            // to remove.
+            setHoveredDecisionUnitId(null);
+            applyAction({ type: "AnswerDecision", playerIndex: HUMAN_INDEX, decisionId: awaitingHuman.id, optionId });
+          }}
         />
       )}
 

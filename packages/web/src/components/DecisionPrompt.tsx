@@ -10,6 +10,22 @@ interface DecisionPromptProps {
   decision: PendingDecision;
   onAnswer: (optionId: string) => void;
   /**
+   * The instance the pointer is over, or `null` on leave — so the BOARD can show
+   * which piece an option means.
+   *
+   * Reported from playtesting: *"hovering a choice in a decision menu should
+   * highlight the corresponding unit on the battlefield. With two identical units
+   * on board you cannot tell which one you are equipping."* Two Recruit tokens
+   * produce two options both reading "Recruit", and nothing in this overlay can
+   * tell them apart — the difference is WHERE they stand, which only the board
+   * can show.
+   *
+   * Fired for the BUTTON options too, not only the card ones: a yes/no whose
+   * affirmative names its subject ("Move to base") is exactly the case where the
+   * label does not say which unit.
+   */
+  onHoverOption?: (instanceId: string | null) => void;
+  /**
    * SPECTATE — show the question and its options, but let nobody answer it: the
    * bot sitting at this seat will, a beat later.
    *
@@ -90,7 +106,7 @@ interface DecisionPromptProps {
  */
 const SEARCHABLE_OPTIONS = 20;
 
-export function DecisionPrompt({ state, decision, onAnswer, readOnly = false }: DecisionPromptProps) {
+export function DecisionPrompt({ state, decision, onAnswer, onHoverOption, readOnly = false }: DecisionPromptProps) {
   const options = optionsFor(state, decision);
   /**
    * The filter text, TIED TO THE QUESTION IT WAS TYPED FOR.
@@ -148,6 +164,21 @@ export function DecisionPrompt({ state, decision, onAnswer, readOnly = false }: 
       ? buttonOptions.filter((option) => option.label.toLowerCase().includes(filter.trim().toLowerCase()))
       : buttonOptions;
 
+  // One helper for both option kinds, so a card option and a button option that
+  // name the same instance cannot come to highlight differently.
+  const hoverProps = (instanceId: string | undefined) =>
+    onHoverOption === undefined || instanceId === undefined
+      ? {}
+      : {
+          onMouseEnter: () => onHoverOption(instanceId),
+          onMouseLeave: () => onHoverOption(null),
+          // Keyboard parity: this overlay is reachable by Tab, and a highlight
+          // only a mouse can raise leaves the same question unanswerable without
+          // one.
+          onFocus: () => onHoverOption(instanceId),
+          onBlur: () => onHoverOption(null),
+        };
+
   return (
     <ChoiceOverlay
       title={promptFor(state, decision)}
@@ -161,7 +192,7 @@ export function DecisionPrompt({ state, decision, onAnswer, readOnly = false }: 
       {cardOptions.length > 0 && (
         <div className="choice-overlay-cards">
           {cardOptions.map(({ option, card }) => (
-            <div className="decision-card-option" key={option.id}>
+            <div className="decision-card-option" key={option.id} {...hoverProps(option.instanceId)}>
               <CardView
                 card={card}
                 isSelectable={!readOnly}
@@ -192,7 +223,12 @@ export function DecisionPrompt({ state, decision, onAnswer, readOnly = false }: 
           )}
           <div className={searchable ? "choice-overlay-actions choice-overlay-actions-wide" : "choice-overlay-actions"}>
             {shownOptions.map((option) => (
-              <button key={option.id} disabled={readOnly} onClick={() => onAnswer(option.id)}>
+              <button
+                key={option.id}
+                disabled={readOnly}
+                onClick={() => onAnswer(option.id)}
+                {...hoverProps(option.instanceId)}
+              >
                 {option.label}
               </button>
             ))}
