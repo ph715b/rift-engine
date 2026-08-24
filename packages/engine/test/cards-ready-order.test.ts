@@ -329,6 +329,56 @@ describe("Albus Ferros (OGN-230): spend any number of buffs, channel one rune ea
 
     expect(offered(asked)).toEqual(["Spend no more buffs", "Spend Mine's buff"]);
   });
+
+  /**
+   * **SETTLED 2026-08-23 — and the row's own citation was the wrong rule.**
+   *
+   * `rules-conformance.md` carried "Albus Ferros may spend a buff for nothing" as
+   * *"**Unverified**, and the most arguable call in the sweep. The text is not
+   * '[do X] to [do Y]' cost phrasing, so it reads as an instruction rather than a
+   * cost, and 416.3's 'must be able to be completed' therefore does not gate
+   * it."* **416 is RECYCLE** — 416.3 is "when Recycling is listed as a Cost…",
+   * with Vi, Destructive as its example. It has nothing to say about buffs. The
+   * reasoning was reaching for a general costs-must-be-payable principle and
+   * grabbed the nearest sentence that sounded like one.
+   *
+   * Three rules settle it, and they all point the same way as the engine:
+   *
+   *  - **355.13** — "If a card specifies that a player chooses 'any number' or
+   *    'up to' some number of Game Objects to be affected, they may choose any
+   *    number of available targets, **including zero**." Nothing bounds the choice
+   *    by what the payout can deliver.
+   *  - **055** — "When executing card text, do as much as you can, ignoring
+   *    impossible instructions", and **055.1** puts it beyond doubt: "**If all of
+   *    a card's instructions are impossible, it is still played and resolved, but
+   *    nothing happens.**"
+   *  - **315.3.b.1** is the same shape for the Channel Phase itself — "if there
+   *    are fewer than 2 runes in the Rune Deck, they channel as many as possible".
+   *
+   * So spending a buff into an empty rune deck is legal and yields nothing. It is
+   * a bad play, and the rules do not forbid bad plays.
+   */
+  it("lets a buff be spent into an EMPTY rune deck, for nothing (055.1 / 355.13)", () => {
+    const { state, albusId } = albusState(["Alpha"], 0);
+    const asked = play(state, albusId);
+
+    // The offer is made at all — the row's whole question. An engine that gated
+    // the spend on the payout would show only "Spend no more buffs" here.
+    expect(offered(asked), "the spend was withheld because it could not pay out").toEqual([
+      "Spend no more buffs",
+      "Spend Alpha's buff",
+    ]);
+
+    const alpha = optionsFor(asked, pendingDecision(asked)!).find((o) => o.label === "Spend Alpha's buff")!;
+    const after = answer(asked, alpha.id);
+
+    // The buff is really gone and really bought nothing.
+    expect(
+      after.players[0]!.baseUnits.find((u) => u.name === "Alpha")!.buffed,
+      "the buff was refunded when the channel found nothing",
+    ).toBe(false);
+    expect(channeledFromDeck(after), "a rune came out of an empty deck").toHaveLength(0);
+  });
 });
 
 describe("Machine Evangel (OGN-239): [Deathknell] three Recruits into your base", () => {

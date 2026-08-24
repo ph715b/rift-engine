@@ -2050,12 +2050,21 @@ export function runBattlefieldBeginningPhase(state: GameState, playerIndex: 0 | 
     // Dusk Rose Lab — "At the start of YOUR Beginning Phase, you may kill a unit
     // you control here to draw 1."
     //
-    // **"YOUR", where Frozen Fortress one line up says "each player's".** Two
-    // cards in one set, printed differently on purpose, so this is read as the
-    // battlefield's CONTROLLER rather than as whoever's phase it is — otherwise
-    // the two phrasings would mean the same thing. Recorded in
-    // docs/rules-conformance.md as Unverified: it is the reading that makes the
-    // contrast meaningful, not one the rules settle outright.
+    // **190.6.d settles it verbatim, and the reading was right**: "**'You' in a
+    // battlefield's abilities refers to the battlefield's Controller**, as does
+    // the implied 'you' in instructions that don't specify a player like 'draw
+    // 1.' If the battlefield has no Controller, 'you' refers to no one, and all
+    // such instructions are ignored."
+    //
+    // Recorded Unverified until 2026-08-23 as "chosen from a CONTRAST rather than
+    // from a rule" — the contrast being Frozen Fortress one line up, which prints
+    // "each player's". The contrast was real and the rule agrees with it; nobody
+    // had looked in 190.6, which is the CONTROL chapter rather than the
+    // battlefield or keyword ones. 190.6.c settles Abandoned Hall's "a player…
+    // they" in the same breath, and names that card too.
+    //
+    // The controller check also gives 190.6.d's second clause for free: an
+    // UNCONTROLLED Lab matches no player, so the instruction is ignored.
     if (bf.defId === DUSK_ROSE_LAB && next.battlefields.find((b) => b.id === bf.id)?.controllerId === next.players[playerIndex].id) {
       next = parkDecision(next, { kind: `${DUSK_ROSE_LAB}-kill`, playerIndex, battlefieldId: bf.id });
     }

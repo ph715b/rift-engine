@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { legalActions } from "../src/engine/legal-actions.js";
+import { runCleanup } from "../src/engine/cleanup.js";
 import { validatePlayCard } from "../src/actions/validate-play-card.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import type { GameState } from "../src/model/game-state.js";
@@ -94,5 +95,51 @@ describe("a hidden PERMANENT is played at its own battlefield (811)", () => {
     // "unreachable" was measured against the PRESETS, never against the pool.
     const hiddenPermanents = registry.all().filter((c) => "hidden" in c && c.hidden === true && c.type !== "Spell");
     expect(hiddenPermanents.length).toBeGreaterThan(1);
+  });
+});
+
+/**
+ * **SETTLED 2026-08-23 by the unverified-row sweep — the conflict this row
+ * recorded as Unverified cannot arise.**
+ *
+ * `rules-conformance.md` said: *"811 is taken as overriding 813's Showdown
+ * narrowing, on the more-specific-rule reading — the alternative makes the one
+ * destination 811 requires illegal."* Two things were wrong with that.
+ *
+ * **813 is REACTION, not a Showdown rule.** The sentence it needed is
+ * **813.3.a**, and it is a CONTROL narrowing: "Playing Units with Reaction still
+ * has the inherent restrictions of playing Units without Reaction. **It can only
+ * be played to the controlling player's base or a battlefield they control.**"
+ * (355.2.a says the same by default.) A from-hidden unit reaches 813 at all only
+ * because **811.6** grants it Reaction while facedown.
+ *
+ * **And the two rules can never disagree**, because 811.1.b hides a card at a
+ * battlefield you control "**for as long as you control that battlefield**". Lose
+ * control and the card stops being hidden — `cleanup.removeUnheldHiddenCards`,
+ * Cleanup step 5. So at the moment a from-hidden play is offered, its one legal
+ * destination is a battlefield its controller controls, which is precisely what
+ * 813.3.a permits. There is no more-specific-rule override to take, and nothing
+ * is being bypassed.
+ *
+ * This test drives the mechanism the argument rests on, because the whole claim
+ * is that one rule keeps the other satisfied — an assertion about 811 alone
+ * would not show it.
+ */
+describe("811.1.b + 813.3.a: losing control removes the card before it can be misplaced", () => {
+  it("the hidden card is gone once its owner stops controlling the battlefield", () => {
+    const state = hiddenUnitState();
+    state.battlefields[1] = { ...state.battlefields[1]!, controllerId: state.players[0]!.id };
+    // The positive control: while control holds, the play really is on offer.
+    expect(hiddenPlays(state).length, "the fixture never offered the play to begin with").toBeGreaterThan(0);
+
+    const lost: GameState = {
+      ...state,
+      battlefields: state.battlefields.map((bf) => (bf.id === "bf2" ? { ...bf, controllerId: state.players[1]!.id } : bf)),
+    };
+    const swept = runCleanup(lost);
+    expect(swept.battlefields[1]!.hiddenCards, "the card stayed hidden at a battlefield its owner lost").toHaveLength(0);
+    expect(hiddenPlays(swept), "a from-hidden play survived the loss of control").toHaveLength(0);
+    // It goes to the trash rather than vanishing — the card is still accounted for.
+    expect(swept.players[0]!.trash.map((c) => c.defId)).toContain(TEEMO_STRATEGIST);
   });
 });

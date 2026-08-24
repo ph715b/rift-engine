@@ -137,13 +137,38 @@ describe("Dusk Rose Lab (UNL-209): kill one of yours here to draw 1", () => {
     expect(pendingDecision(settled), "a question was asked with nothing to kill").toBeUndefined();
   });
 
-  it("asks only the CONTROLLER — 'your', where Frozen Fortress says 'each player's'", () => {
-    // Two cards in one set, printed differently on purpose. Read as the
-    // battlefield's controller, or the two phrasings would mean the same thing.
-    // Recorded in docs/rules-conformance.md as Unverified — it is the reading that
-    // makes the contrast meaningful rather than one the rules settle outright.
+  /**
+   * **SETTLED 2026-08-23 — and 190.6.d says it verbatim.**
+   *
+   * This used to read "recorded in docs/rules-conformance.md as Unverified — it
+   * is the reading that makes the contrast meaningful rather than one the rules
+   * settle outright". The contrast (Frozen Fortress printing "each player's" in
+   * the same set) was real and the rule agrees with it:
+   *
+   * > **190.6.d.** "**'You' in a battlefield's abilities refers to the
+   * > battlefield's Controller**, as does the implied 'you' in instructions that
+   * > don't specify a player like 'draw 1.' **If the battlefield has no
+   * > Controller, 'you' refers to no one, and all such instructions are
+   * > ignored.**"
+   *
+   * Nobody had looked in 190.6 because it is the CONTROL chapter, not the
+   * battlefield or keyword ones. 190.6.c settles Abandoned Hall's "a player…
+   * they" in the same breath and names that card too.
+   */
+  it("asks only the CONTROLLER — 190.6.d's 'you' is the battlefield's controller", () => {
     const notMine = withDeck(beginningAt(DUSK_ROSE_LAB, { p1: [mine()] }, { controllerId: "p2" }));
     expect(pendingDecision(runBeginning(notMine)), "a non-controller was offered the choice").toBeUndefined();
+  });
+
+  it("...and an UNCONTROLLED Lab asks nobody — 190.6.d's second clause", () => {
+    // "If the battlefield has no Controller, 'you' refers to no one, and all such
+    // instructions are ignored." The controller check gives this for free, but
+    // free is not the same as pinned: a future rewrite that defaulted an absent
+    // controller to the turn player would offer a kill on a battlefield nobody
+    // holds, and nothing else here would catch it.
+    const nobodys = withDeck(beginningAt(DUSK_ROSE_LAB, { p1: [mine()] }, { controllerId: null }));
+    expect(nobodys.battlefields[0]!.controllerId, "the fixture still has a controller").toBeNull();
+    expect(pendingDecision(runBeginning(nobodys)), "an uncontrolled Lab offered its kill").toBeUndefined();
   });
 });
 

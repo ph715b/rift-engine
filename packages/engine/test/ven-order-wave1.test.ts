@@ -588,6 +588,55 @@ describe("Ki Barrier (VEN-126): prevent the NEXT 7 damage, as a pool", () => {
 
     expect(onBoard(after, other.instanceId)?.damage).toBe(4);
   });
+
+  /**
+   * **SETTLED 2026-08-23 — two Ki Barriers SUM, and rule 437 says so directly.**
+   *
+   * `rules-conformance.md` carried this as Unverified with a stated reason: 801.3
+   * puts summing in each KEYWORD's own rule and Ki Barrier is a prevention effect
+   * rather than a keyword, so "nothing makes two instances one shield", and the
+   * row concluded that SUM-versus-queue "turns on which pool empties first, which
+   * nothing in this pool can observe". That looked in the keyword chapter. The
+   * answer is in **437 Prevent**, which never contemplates two pools at all:
+   *
+   *  - **437.2** — damage is "reduced by **the Prevent Value tracked on the Unit**
+   *    specifically". Singular, and a property of the UNIT.
+   *  - **437.3 / 437.3.b** — "reduce **the Prevent Value** being tracked on the
+   *    Unit… **The reduced value** is the newly tracked Prevent Value."
+   *  - **437.5.a** — lethal assignment considers "**the Prevent Value of all
+   *    Prevent Actions on a Unit**": many actions, ONE value.
+   *
+   * So a unit tracks one Prevent Value and Prevent Actions contribute to it —
+   * which is exactly `damagePreventionPoolByInstanceId`, a single number per
+   * instance. **437.1.b.2** independently rules out the one model that would
+   * differ: "Prevent will **always** apply to the next damage that would be dealt
+   * to a unit affected by the Prevent action", so a second barrier cannot sit out
+   * a hit the first one partly absorbed.
+   *
+   * Worth recording that the row's *worry* was sound and its *conclusion* was
+   * not: SUM and a queue where BOTH pools apply are arithmetically identical for
+   * one hit and for many. The only model that differs is a queue where one pool
+   * applies per instance, and 437.1.b.2 is the sentence that forbids it.
+   */
+  it("two barriers on one unit make a single pool of 14 (437.2/437.3)", () => {
+    const { state, unit } = board(30);
+    const twice = barriered(barriered(state, unit.instanceId), unit.instanceId);
+    expect(twice.damagePreventionPoolByInstanceId[unit.instanceId], "the second cast did not stack").toBe(14);
+  });
+
+  it("...and a 10-point hit is absorbed whole, which ONE barrier could not do", () => {
+    // The contrast is the assertion. With one barrier this same hit puts 3
+    // damage on the unit; the paired call is what shows the pools combined
+    // rather than the test measuring a bigger board.
+    const { state, unit } = board(30);
+    const once = dealDamage(barriered(state, unit.instanceId), 1, unit.instanceId, 10);
+    expect(onBoard(once, unit.instanceId)?.damage, "one barrier should let 3 through").toBe(3);
+
+    const twice = barriered(barriered(state, unit.instanceId), unit.instanceId);
+    const after = dealDamage(twice, 1, unit.instanceId, 10);
+    expect(onBoard(after, unit.instanceId)?.damage, "the second barrier sat out the hit").toBe(0);
+    expect(after.damagePreventionPoolByInstanceId[unit.instanceId], "14 - 10 should leave 4").toBe(4);
+  });
 });
 
 describe("Lacerate (VEN-127): disempower, THEN kill it if it has 3 Might or less", () => {
