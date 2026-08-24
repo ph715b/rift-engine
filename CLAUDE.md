@@ -23,6 +23,19 @@ XP ever rise in a real game" is the only question that settles whether the
 keyword is live or inert in play. Expect every XP keyword to need this probe
 rather than the coverage gates.
 
+**`first-player` is NOT in that list, on purpose.** It answers "does going first
+win more?" — a question about the GAME, asked so the AI can make tournament rule
+407.4's turn-order choice on evidence. It is an instrument for a design decision
+rather than a regression gate, it costs minutes, and its answer only moves when
+the AI does. Run it when that choice is revisited; do not put it in the loop.
+
+**And `ai-ab` cannot answer that question, which is why it exists.** That harness
+pairs every game with itself and the labels swapped, and pins `firstPlayerIndex`
+to 0 in both halves — deliberately cancelling the seat, which is the whole
+variable here. Mirroring would have produced a guaranteed 50% and looked like a
+result. Reach for a new probe when the existing one's controls are designed to
+remove your variable.
+
 **`battlefield-reach` is here for the same reason one level up: NOTHING ELSE CAN
 SEE A BATTLEFIELD IN PLAY.** `card-loader`'s `shouldSkip` keeps Battlefield cards
 out of the registry, so `reachability` never counts one and `isCardImplemented`
@@ -366,6 +379,39 @@ rules. Nothing in the repo can detect it: the number resolves, the prose reads
 plausibly, and the compiler has no opinion. Treat a citation you did not
 personally read against `-raw` as unverified, however confident the comment
 around it sounds.
+
+## THERE ARE TWO PDFs, and the Tournament one silently EATS f-ligatures
+
+`docs/Riftbound Tournament Rules.pdf` (added 2026-08-23) is the second source,
+and **104.1 makes it take precedence over the Core Rules for competitions**: "In
+some cases, information in this document may contradict, or provide information
+not contained in, the Riftbound Core Rules. In all such cases, this document
+takes precedence." So a Core Rules answer is not automatically the final answer —
+check whether the Tournament document speaks to it.
+
+**Every f-ligature is DROPPED from its `-raw` extraction, with nothing left
+behind — not even the letters.** Measured across the whole document:
+
+| you search for | hits | what is actually in the text |
+|---|---|---|
+| `first` | **0** | `rst` (27) |
+| `official` / `officials` | **0** | `ocial` (25) / `ocials` (18) |
+| `effect` / `effects` | **0** | `eect` (2) / `eects` (2) |
+| `defined` / `definition` | **0** | `dened` (21) / `denition` |
+| `shuffle` / `shuffling` | **0** | `shue` (12) / `shuing` (9) |
+| `different` / `difficult` / `final` / `finish` | **0** | `dierent` (13) / `dicult` / `nal` (11) / `nish` |
+
+**A grep for "first player" in that document returns nothing, and the rule
+exists.** That is how this was nearly missed: 407 is the *Play First Rule* and
+none of the words "Play First" survive as typed. `-enc UTF-8` does not help; the
+glyphs are absent rather than mis-encoded, leaving a bare space. **The Core Rules
+PDF is NOT affected** — `first` appears 87 times there — so this is a property of
+the one file, not of the tooling.
+
+**How to search it:** drop the ligature from your search term too (`rst`,
+`ocial`, `eect`, `nal`), or grep a fragment that contains no f-ligature at all
+and read around the hit. When quoting from it into a comment or a doc, restore
+the letters by hand and say you did.
 
 ## Measure before planning
 

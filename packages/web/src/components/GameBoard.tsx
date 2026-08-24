@@ -47,7 +47,15 @@ import {
   type UnitInstance,
 } from "@rift-engine/engine";
 import { targetingBlockedReason } from "../unplayable-target-reason.js";
-import { createNewGame, rollAiBattlefield, winsNeeded, type MatchConfig } from "../game-setup.js";
+import {
+  chosenFirstPlayer,
+  createNewGame,
+  playFirstDecision,
+  rollAiBattlefield,
+  winsNeeded,
+  type MatchConfig,
+  type PreviousGame,
+} from "../game-setup.js";
 import { CardView, type DragPoint } from "./CardView.js";
 import { BattlefieldView } from "./BattlefieldView.js";
 import { ChoiceOverlay } from "./ChoiceOverlay.js";
@@ -333,6 +341,16 @@ interface SeriesState {
    *  because each player's pool is their own. */
   humanUsedBattlefields: string[];
   aiUsedBattlefields: string[];
+  /**
+   * What the PREVIOUS game did, for tournament rule **407.4**'s "the loser of
+   * the previous game gets to choose if they play first or last". `undefined`
+   * before any game has finished, which is 407.1's designated-player roll.
+   *
+   * Banked from the finished game rather than remembered from what was chosen,
+   * the same discipline `handleNextGame` already uses for the battlefields: it
+   * cannot drift from what was actually played.
+   */
+  previousGame?: PreviousGame;
 }
 
 function freshSeries(): SeriesState {
@@ -356,6 +374,17 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   // the MATCH is over (rule 486.6's two game wins) and the used-battlefield
   // lists to honour 486.5's elimination on the next game's selection.
   const [series, setSeries] = useState<SeriesState>(() => freshSeries());
+  /**
+   * The turn order settled for THIS game, when something settled it — tournament
+   * rule 407.4's loser's choice, the AI's own, or a draw's carried order.
+   * `undefined` means "roll it", which is game 1 and every Best of 1.
+   *
+   * Held here rather than recomputed at each use because the pregame rebuilds
+   * the game state twice (once as the throwaway the battlefield chooser sits in
+   * front of, once for real), and a decision recomputed on the second pass would
+   * have to re-derive a choice the player already made.
+   */
+  const [firstPlayerChoice, setFirstPlayerChoice] = useState<0 | 1 | undefined>(undefined);
   // Which pregame step is showing, or "playing" once the board is live. Best
   // of 3 adds a battlefield selection ahead of the mulligan — rule 486.5 puts
   // that selection in Setup, so it runs before EVERY game, not only between
@@ -615,6 +644,12 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
       ...prev,
       humanGameWins: prev.humanGameWins + (humanWon ? 1 : 0),
       aiGameWins: prev.aiGameWins + (humanWon ? 0 : 1),
+      // 407.4 reads the LOSER of this game, and a draw carries its turn order
+      // forward — so both facts are banked here, off the state that just ended.
+      previousGame: {
+        loserIndex: humanWon ? AI_INDEX : HUMAN_INDEX,
+        firstPlayerIndex: state.firstPlayerIndex,
+      },
     }));
   }, [result, state]);
 
@@ -2042,11 +2077,12 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
    *  out because a Best of 3's "next game" needs exactly this and must NOT
    *  touch the series, while starting a whole new match needs this plus a
    *  series reset. */
-  function resetForNewGame(newConfig: MatchConfig, seed: number) {
+  function resetForNewGame(newConfig: MatchConfig, seed: number, firstPlayerIndex?: 0 | 1) {
     setGame(null);
     setGameSeed(seed);
+    setFirstPlayerChoice(firstPlayerIndex);
     bankedGameRef.current = false;
-    setPregameState(dealOpeningHands(createNewGame(newConfig, seed)));
+    setPregameState(dealOpeningHands(createNewGame(newConfig, seed, undefined, firstPlayerIndex)));
     // Same narrowing as the initial state above: a spectated Bo3 rolls its
     // battlefields rather than stopping at a chooser nobody is sitting at.
     setPregame(newConfig.format === "bo3" && newConfig.spectate !== true ? "selectBattlefield" : "mulligan");
@@ -2084,7 +2120,9 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
    *  of, then moves on to the mulligan. */
   function handleBattlefieldSelect(humanName: string) {
     const aiName = rollAiBattlefield(config, gameSeed, series.aiUsedBattlefields);
-    setPregameState(dealOpeningHands(createNewGame(config, gameSeed, { humanName, aiName })));
+    // `firstPlayerChoice` is carried through this rebuild, or 407.4's decision
+    // would be discarded by the very call that replaces the throwaway state.
+    setPregameState(dealOpeningHands(createNewGame(config, gameSeed, { humanName, aiName }, firstPlayerChoice)));
     setPregame("mulligan");
   }
 
@@ -2105,7 +2143,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
    *  Reads the battlefields off the state that just ended rather than
    *  remembering what was chosen, so it can't drift from what was actually in
    *  play. */
-  function handleNextGame() {
+  function handleNextGame(humanPlaysFirst?: boolean) {
     const humanBattlefield = state.battlefields[0]?.name;
     const aiBattlefield = state.battlefields[1]?.name;
     setSeries((prev) => ({
@@ -2114,7 +2152,12 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
       humanUsedBattlefields: humanBattlefield ? [...prev.humanUsedBattlefields, humanBattlefield] : prev.humanUsedBattlefields,
       aiUsedBattlefields: aiBattlefield ? [...prev.aiUsedBattlefields, aiBattlefield] : prev.aiUsedBattlefields,
     }));
-    resetForNewGame(config, Date.now());
+    // **407.4.** `humanPlaysFirst` is set only when the panel put the choice to
+    // the human — i.e. when they were the loser. Every other case (the AI chose,
+    // or a draw carried the order forward) is already settled in `turnOrder`.
+    const chosen: 0 | 1 | undefined =
+      humanPlaysFirst === undefined ? turnOrder.firstPlayerIndex : humanPlaysFirst ? HUMAN_INDEX : AI_INDEX;
+    resetForNewGame(config, Date.now(), chosen);
   }
 
   // Computed once per render for the header hint and the rune-payment UI —
@@ -2281,6 +2324,29 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   // In a Best of 3 the MATCH is only over once someone has the needed game
   // wins; every earlier game end goes to SeriesPanel instead.
   const isMatchOver = !isBo3 || series.humanGameWins >= targetWins || series.aiGameWins >= targetWins;
+  /**
+   * **Tournament rule 407.4**, resolved for the game AFTER the one just played.
+   *
+   * One place decides who chooses and what a non-human chooser takes, so the
+   * panel that renders it and the handler that applies it cannot disagree —
+   * which is this repo's standing enumerator/validator discipline applied to a
+   * UI pair. `firstPlayerIndex` is `undefined` exactly when a human still has to
+   * answer.
+   */
+  const turnOrder = (() => {
+    const decision = playFirstDecision(series.previousGame);
+    if (decision.chooser === null) {
+      return { humanChooses: false, firstPlayerIndex: decision.carriedFirstPlayerIndex };
+    }
+    // Spectate has nobody at seat 0, so the AI answers for both — the same
+    // stand-in the battlefield step already makes.
+    const humanChooses = decision.chooser === HUMAN_INDEX && config.spectate !== true;
+    return {
+      humanChooses,
+      firstPlayerIndex: humanChooses ? undefined : chosenFirstPlayer(decision.chooser),
+      aiChoseToPlayFirst: humanChooses ? undefined : chosenFirstPlayer(decision.chooser) === decision.chooser,
+    };
+  })();
 
   if (pregame === "selectBattlefield") {
     return (
@@ -2363,6 +2429,8 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
             humanGameWins={series.humanGameWins}
             aiGameWins={series.aiGameWins}
             winsNeeded={targetWins}
+            humanChoosesTurnOrder={turnOrder.humanChooses}
+            aiChoseToPlayFirst={turnOrder.aiChoseToPlayFirst}
             onNextGame={handleNextGame}
             onMainMenu={onMainMenu}
           />
