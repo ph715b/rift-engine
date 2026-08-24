@@ -53,7 +53,7 @@ import { counterSpell, gainControlOfSpell } from "../counter-spell.js";
 import { wearerListener } from "../equipment.js";
 import { playCardIgnoringCost } from "../play-free.js";
 import { effectiveMight } from "../effective-might.js";
-import { findUnitAnywhere } from "../target-lookup.js";
+import { currentMightContext, findUnitAnywhere } from "../target-lookup.js";
 import { holdCardsRecycled } from "../effect-helpers.js";
 import { cardModeOf } from "../card-effects.js";
 import { spellsOnChain } from "../counter-spell.js";
@@ -863,8 +863,8 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // Duel takes for "damage equal to their Mights" and Stupefy takes for its
     // minimum-1 floor.
     //
-    // **`isCombat: false`, so `[Assault]`/`[Shield]` do not count — and that is a
-    // DIVERGENCE, recorded 2026-08-23 by the unverified-row sweep.**
+    // **`[Assault]`/`[Shield]` DO count while the target holds a combat
+    // designation — 432.1, and this card is its worked example.**
     //
     // The justification here used to read: those are "while I'm
     // attacking/defending" bonuses **(817)**, i.e. properties of a fight rather
@@ -881,16 +881,23 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // Might of 10. After combat, Shield no longer applies, but the +5 Might from
     // Last Stand does, so the unit's Might is 8."
     //
-    // Left as-is for now rather than half-fixed: `coverage.ts` records that the
-    // unbounded `effectiveMight` cycle is genuine at `isCombat: true`
-    // (`effectiveKeywords` -> a Might-dependent grant -> `isMighty` -> the
-    // outgoing role -> back in), which is the cycle `excludeMightDependentGrants`
-    // exists to break. It is a real change with a probe run attached, not a flag
-    // flip. See docs/rules-conformance.md.
+    // **FIXED 2026-08-23 — and the blocker was real but did not REACH this.**
+    // The note here read: "left as-is for now rather than half-fixed;
+    // `coverage.ts` records that the unbounded `effectiveMight` cycle is genuine
+    // at `isCombat: true`". That cycle IS genuine — and it is about a
+    // `mightModifiers` entry that itself calls `effectiveMight` and so re-enters
+    // through its own registry. A plain resolver-side read terminates at depth 2,
+    // because `isMighty` already passes `mightyCheck: true`, withholding exactly
+    // the grants that could re-enter. Measured on Fiora - Victorious mid-combat:
+    // it returns rather than recursing.
     //
-    // Note the sibling readings differ: Stormbringer is conformant BY
-    // CONSTRUCTION (its target is "a friendly unit in your base", which can never
-    // hold either designation), and Yasuo - Remorseful is still open.
+    // Now reads `currentMightContext`, shared with the three other sites that had
+    // copied the same wrong justification. Pinned by 432.1's own example, run on
+    // UNL-099 Towering Combatant — its unit exactly, printed 3 Might with printed
+    // [Shield 2].
+    //
+    // Stormbringer stays conformant BY CONSTRUCTION either way: its target is "a
+    // friendly unit in your base", which can never hold a combat designation.
     //
     // Doubling is a SNAPSHOT: `+M this turn` on a unit currently at M. A later
     // buff therefore lands on top rather than being doubled too, which is what
@@ -906,7 +913,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
       if (!id) return state;
       const location = findUnitAnywhere(state, id);
       if (!location) return state; // target left play between casting and resolution
-      const doubled = giveMightThisTurn(state, id, effectiveMight(state, location.unit, location.ownerIndex, mightContext(state, location)));
+      const doubled = giveMightThisTurn(state, id, effectiveMight(state, location.unit, location.ownerIndex, currentMightContext(state, location)));
       // Printed order: the Might first, then [Temporary]. Observable rather than
       // cosmetic — a 0-Might unit doubles to nothing and still becomes Temporary.
       return grantTemporary(doubled, id);
@@ -1324,11 +1331,10 @@ function ivernLook(state: GameState, playerIndex: 0 | 1): GameState {
  *  base-vs-battlefield branch three callers in this repo already write out by
  *  hand (Stupefy, En Garde, Gentlemen's Duel). Positional auras
  *  (Garen - Commander) resolve "base" from the omitted field. */
-function mightContext(state: GameState, location: AnyUnitLocation): { isCombat: false; battlefieldId?: string } {
-  return location.zone === "base"
-    ? { isCombat: false }
-    : { isCombat: false, battlefieldId: state.battlefields[location.zone.battlefieldIndex]!.id };
-}
+// `mightContext` lived here and hardcoded `isCombat: false`. It is now
+// `target-lookup.currentMightContext`, shared with effects/mind.ts's identical
+// twin and combat-aware per 432.1 — see its doc for the rule and for why the
+// recursion this was refused on does not reach a resolver-side read.
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
   "VEN-026": {
@@ -2633,16 +2639,23 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
         .filter(([id]) => id !== ownerId)
         .flatMap(([, units]) => units.map((u) => u.instanceId))[0];
       if (enemyId === undefined) return state;
-      // "MY Might" read through effectiveMight with `isCombat: false`, so buffs,
-      // this-turn pumps and continuous auras count but `[Assault]`/`[Shield]` do
-      // not. This is a damage instruction rather than combat damage — combat.ts
-      // owns that separately, and counting Assault here would pay it twice in the
-      // same fight. Same call Gentlemen's Duel makes for "damage equal to their
-      // Mights".
-      const might = effectiveMight(state, listener.card, listener.ownerIndex, {
-        isCombat: false,
-        battlefieldId: event.battlefieldId,
-      });
+      // **"MY Might" is CURRENT Might, and it includes his `[Assault]` while he
+      // holds the Attacker designation.** Corrected 2026-08-23.
+      //
+      // This read used to hardcode `isCombat: false`, defended as: "counting
+      // Assault here would pay it twice in the same fight". **It would not.** His
+      // trigger's damage and combat damage are two separate instances, and
+      // **807.1.c** is a continuous Might modification — "While I am an attacker,
+      // I have +X [M]" — rather than a one-shot resource that the first reader
+      // spends. Anything asking a designated unit's Might gets the higher number,
+      // every time. **432.1** works the same reading on a defender by name.
+      //
+      // That one sentence had been copied to four call sites across three cards;
+      // `currentMightContext` is now the single answer. See its doc for the rule
+      // and for why the recursion this was refused on does not reach here.
+      const self = findUnitAnywhere(state, listener.card.instanceId);
+      if (!self) return state;
+      const might = effectiveMight(state, self.unit, self.ownerIndex, currentMightContext(state, self));
       return dealDamage(state, listener.ownerIndex, enemyId, might);
     },
   },

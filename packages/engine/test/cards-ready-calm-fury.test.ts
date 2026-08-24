@@ -31,6 +31,8 @@ import { makeState, makeUnit, realUnitInstance, resolveHeldTriggers } from "./fi
 
 const registry = defaultCardRegistry();
 const LAST_STAND = "OGN-069";
+/** 432.1's example unit: printed 3 Might with printed [Shield 2]. */
+const TOWERING_COMBATANT = "UNL-099";
 const ADAPTATRON = "OGN-056";
 const YASUO_REMORSEFUL = "OGN-076";
 const KADREGRIN = "OGN-038";
@@ -152,6 +154,77 @@ describe("Last Stand (OGN-069): double a friendly unit's Might this turn, give i
     expect(effectiveMight(after, pumped, 0, { isCombat: false, battlefieldId: "bf1" })).toBe(8);
   });
 
+  /**
+   * **432.1's worked example, which names THIS CARD — and the engine gave the
+   * opposite answer until 2026-08-23.**
+   *
+   * > "A unit with 3 base Might and Shield 2 is in combat as a Defender. **Since
+   * > Shield applies, its current Might is 5.** A player chooses it as the target
+   * > for **Last Stand**… it gets **+5 Might** this turn, for a current Might of
+   * > 10. After combat, Shield no longer applies, but the +5 Might from Last
+   * > Stand does, so the unit's Might is 8."
+   *
+   * The old reading passed `isCombat: false`, so a defending Shield 2 unit was
+   * doubled from 3 rather than 5 — narrower than printed. Its stated reason was
+   * that `[Assault]`/`[Shield]` are "properties of a fight rather than of the
+   * unit **(817)**"; 817 is Vision, and **807.1.c** and **814.1.c** each read "It is
+   * functionally short for 'While I am an attacker/defender, I have +X [M]'".
+   *
+   * **UNL-099 Towering Combatant is 432.1's unit exactly** — printed 3 Might with
+   * printed `[Shield 2]` — so this is the rule's example run rather than a
+   * paraphrase of it.
+   */
+  it("doubles a defender's CURRENT Might, including its [Shield] (432.1)", () => {
+    const defender = realUnitInstance(TOWERING_COMBATANT);
+    const { state, spell } = lastStandState(defender);
+    // A Combat Showdown at bf1 with the human DEFENDING: the attacker is
+    // `activePlayerIndex`, so seat 1 must be active for seat 0 to be a defender.
+    // Last Stand is `[Action]` — "play on your turn OR IN SHOWDOWNS" — so the
+    // defender really can cast it here; the Showdown fields are what make it legal.
+
+    const inCombat: GameState = {
+      ...state,
+      activePlayerIndex: 1,
+      turnState: "Showdown",
+      focusHolder: 0,
+      chainPriority: 0,
+      showdownKind: "Combat",
+      showdownBattlefieldId: "bf1",
+      battlefields: state.battlefields.map((bf) =>
+        bf.id === "bf1" ? { ...bf, units: { p1: [defender], p2: [makeUnit({ might: 1 })] } } : bf,
+      ),
+    };
+    // The control: without the Shield the doubling would be +3, so this asserts
+    // the fixture really is the rule's board before it asserts the answer.
+    expect(defender.might, "the fixture unit is not 432.1's 3-Might body").toBe(3);
+
+    const play = offered<PlayCardAction>(
+      inCombat,
+      (a) =>
+        a.type === "PlayCard" && a.card.instanceId === spell.instanceId && a.targetUnitInstanceId === defender.instanceId,
+      "Last Stand aimed at the defending unit",
+    );
+    const pumped = unitAt(resolveChain(accept(inCombat, play)), "bf1", "p1", defender.instanceId);
+
+    // "+5 Might this turn" — doubled from a CURRENT Might of 5, not from 3.
+    expect(pumped.mightThisTurn, "doubled from base Might, ignoring the Shield").toBe(5);
+  });
+
+  it("...and out of combat the same unit is doubled from 3 — the Shield is the difference", () => {
+    // The other half. Without it the test above could pass on an engine that
+    // added a flat +2 to every Last Stand, or that read Shield everywhere.
+    const defender = realUnitInstance(TOWERING_COMBATANT);
+    const { state, spell } = lastStandState(defender);
+    const play = offered<PlayCardAction>(
+      state,
+      (a) =>
+        a.type === "PlayCard" && a.card.instanceId === spell.instanceId && a.targetUnitInstanceId === defender.instanceId,
+      "Last Stand out of combat",
+    );
+    const pumped = unitAt(resolveChain(accept(state, play)), "bf1", "p1", defender.instanceId);
+    expect(pumped.mightThisTurn, "[Shield] counted outside a combat").toBe(3);
+  });
+
   it("is 'a FRIENDLY unit' — the enumerator never offers an enemy one", () => {
     const ally = makeUnit({ might: 2 });
     const theirs = makeUnit({ might: 2 });
@@ -220,6 +293,36 @@ describe("Yasuo - Remorseful (OGN-076): when I attack, deal my Might to an enemy
     expect(after.turnState, "no Combat Showdown was staged").toBe("Showdown");
     expect(after.showdownKind).toBe("Combat");
     expect(unitAt(after, "bf1", "p2", enemy.instanceId).damage).toBe(6);
+  });
+
+  /**
+   * **His `[Assault]` counts, and it did not until 2026-08-23.**
+   *
+   * The read hardcoded `isCombat: false`, defended as "counting Assault here
+   * would pay it twice in the same fight". It would not: his trigger's damage and
+   * combat damage are two separate instances, and **807.1.c** is a continuous
+   * Might modification ("While I am an attacker, I have +X [M]") rather than a
+   * one-shot resource the first reader spends. **432.1** works the same reading on
+   * a defender and names Last Stand.
+   *
+   * He holds the Attacker designation when this fires — the trigger IS "when I
+   * attack" — so his current Might includes it. Granted on the instance rather
+   * than found on a card that prints it, because no printed-Assault unit also has
+   * his trigger; the grant is what the rule is about, not where it came from.
+   */
+  it("adds his [Assault] to the damage — 807.1.c is Might while attacking", () => {
+    const { state, yasuo, enemy } = yasuoState(20);
+    const armed: GameState = {
+      ...state,
+      players: state.players.map((p, i) =>
+        i === 0 ? { ...p, baseUnits: [{ ...yasuo, keywords: { ...yasuo.keywords, Assault: 2 } }] } : p,
+      ) as GameState["players"],
+    };
+    const moved = armed.players[0]!.baseUnits[0]!;
+    const after = accept(armed, move(armed, moved));
+
+    // 6 printed + 2 Assault. Without the fix this was 6.
+    expect(unitAt(after, "bf1", "p2", enemy.instanceId).damage, "[Assault] was dropped from his Might").toBe(8);
   });
 
   it("KILLS an enemy his Might covers, through the ordinary damage funnel", () => {

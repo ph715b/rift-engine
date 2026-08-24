@@ -2,7 +2,7 @@ import type { GameState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
 import type { Domain } from "../model/domain.js";
 import { cardModeOf, slotOwner, slotScope, type TargetingSpec, type TargetScope } from "./card-effects.js";
-import { effectiveMight } from "./effective-might.js";
+import { effectiveMight, type MightContext } from "./effective-might.js";
 import { canonicalDefId } from "../cards/card-loader.js";
 import { SHADOW_CLONE_TOKEN_DEF_ID } from "./constants.js";
 import { counterableSpells, spellsOnChain } from "./counter-spell.js";
@@ -79,6 +79,75 @@ export interface AnyUnitLocation {
   ownerId: string;
   ownerIndex: 0 | 1;
   zone: UnitZone;
+}
+
+/**
+ * The `MightContext` for **"this unit's CURRENT Might"** — the phrase 143.2 and
+ * 432.1 use, and the one every card that reads another unit's Might is asking.
+ *
+ * # Why this is combat-aware, and why it did not used to be
+ *
+ * **432.1's worked example settles it, and works Last Stand BY NAME**: *"A unit
+ * with 3 base Might and Shield 2 is in combat as a Defender. **Since Shield
+ * applies, its current Might is 5.** A player chooses it as the target for Last
+ * Stand… it gets +5 Might this turn, for a current Might of 10. After combat,
+ * Shield no longer applies, but the +5 Might from Last Stand does, so the unit's
+ * Might is 8."*
+ *
+ * `[Assault]` and `[Shield]` ARE Might while the designation holds — **807.1.c**
+ * and **814.1.c** each read "It is functionally short for 'While I am an
+ * attacker/defender, I have +X [M]'", and Fortified Position's reminder text says
+ * the same from the card side ("+2 [M] while it's a defender").
+ *
+ * Two identical `isCombat: false` helpers used to sit in `effects/calm.ts` and
+ * `effects/mind.ts`, and the justification for both traced back to one comment on
+ * Yasuo - Remorseful: that counting `[Assault]` in a damage INSTRUCTION "would
+ * pay it twice in the same fight". It would not. A trigger's damage and combat
+ * damage are two separate instances, and 807.1.c is a continuous Might
+ * modification rather than a one-shot resource — anything that asks a designated
+ * unit's Might gets the higher number, every time. That one comment had been
+ * copied to four call sites across three cards.
+ *
+ * # `combatRole: "remaining"`, and that is the rules' choice not a default
+ *
+ * `"outgoing"` is the damage a unit DEALS and takes only `[Assault]`;
+ * `"remaining"` is what it can ABSORB and takes `[Assault]` attacking or
+ * `[Shield]` defending. 432.1 reads a DEFENDER's current Might as including its
+ * Shield, so "current Might" is the `"remaining"` role. Reading it as
+ * `"outgoing"` would give a defender its base Might and quietly contradict the
+ * example.
+ *
+ * # The blocker this had been refused on does not reach here
+ *
+ * `coverage.ts` records an unbounded `effectiveMight` cycle at `isCombat: true`
+ * (`effectiveKeywords` → a Might-dependent grant → `isMighty` → back in). **That
+ * cycle is genuine, and it is about a `mightModifiers` entry that itself calls
+ * `effectiveMight`** — the modifier re-enters through its own registry. A plain
+ * resolver-side read like this one terminates at depth 2, because `isMighty`
+ * already passes `mightyCheck: true`, which withholds exactly the grants that
+ * could re-enter. **Measured 2026-08-23** by calling `effectiveMight` at
+ * `isCombat: true` on Fiora - Victorious (the pool's only Might-dependent grant)
+ * mid-combat: it returns rather than recursing.
+ */
+export function currentMightContext(state: GameState, location: AnyUnitLocation): MightContext {
+  if (location.zone === "base") return { isCombat: false };
+  const battlefieldId = state.battlefields[location.zone.battlefieldIndex]!.id;
+  // A designation only exists inside THIS unit's own Combat Showdown — the same
+  // three questions `granted-keywords.isMighty` asks, and deliberately the same
+  // order, so the two can never disagree about whether a unit is in combat. A
+  // Non-Combat Showdown is excluded: 316.8.b.1 says it "does not create a
+  // Combat", so there is no attacker, no defender and no keyword bonus.
+  if (state.showdownKind !== "Combat" || state.showdownBattlefieldId !== battlefieldId) {
+    return { isCombat: false, battlefieldId };
+  }
+  return {
+    isCombat: true,
+    combatRole: "remaining",
+    // The attacker is `activePlayerIndex`, frozen for the Showdown's lifetime —
+    // the same derivation `isMighty` and `execute-pass-focus` both take.
+    isAttackingSide: location.ownerIndex === state.activePlayerIndex,
+    battlefieldId,
+  };
 }
 
 /**

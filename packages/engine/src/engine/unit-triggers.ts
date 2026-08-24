@@ -640,8 +640,15 @@ export function dispatchOnPlayUnit(
   // practice the moment Gemcraft Seer granted it: a granted Vision belongs to a
   // card with no entry in that table, or to one whose entry is about something
   // else entirely. Fired from the funnel, it reaches every unit that enters with
-  // the keyword however it got it — which is what rule 818's "the trigger is the
-  // permanent entering the Board" says.
+  // the keyword however it got it — which is what **817.1.c**'s "the trigger is
+  // the permanent entering the Board" says.
+  //
+  // **Cited as 818 until 2026-08-23, which is EQUIP.** The sentence quoted is
+  // real and is 817.1.c; the number was one off, in exactly the direction this
+  // repo's citation table already records twice for this keyword family. Vision
+  // is 817, Equip is 818 — and the three other 818 cites in `src` (818.1.c.2,
+  // 818.1.c.3, 818.4) were checked at the same time and are all correctly about
+  // Equip.
   //
   // Read off the DEPLOYED unit, so the aura's own source is already in play and
   // the entering unit is already on the board — the moment the rules name. The

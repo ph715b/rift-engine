@@ -73,7 +73,7 @@ import {
   voidHatchlingOptions,
 } from "../top-of-deck.js";
 import { effectiveMight } from "../effective-might.js";
-import { findUnitAnywhere, findUnitOnBattlefield, type AnyUnitLocation } from "../target-lookup.js";
+import { currentMightContext, findUnitAnywhere, findUnitOnBattlefield, type AnyUnitLocation } from "../target-lookup.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
 import type { UnitInstance } from "../../model/card.js";
 import { wearerListener } from "../equipment.js";
@@ -240,9 +240,7 @@ function unitsAtBattlefields(state: GameState, playerIndex: 0 | 1): number {
  *  three lines Gentlemen's Duel and Kinkou Monk already write out, needed here
  *  because Convergent Mutation compares two units' Might across zones. */
 function mightContextFor(state: GameState, location: AnyUnitLocation) {
-  return location.zone === "base"
-    ? { isCombat: false }
-    : { isCombat: false, battlefieldId: state.battlefields[location.zone.battlefieldIndex]!.id };
+  return currentMightContext(state, location);
 }
 
 /** Clairvoyance (VEN-056), Temporal Breach (VEN-066), Bottled Constellation
