@@ -348,6 +348,23 @@ export function mayPlayUnitToBattlefield(
    *  (it can be granted), and omitted by callers asking the board-wide
    *  question. */
   ambushCard?: CardInstance,
+  /**
+   * Does the card's OWN text name this destination — `unit-triggers`'
+   * `mayPlaceWithoutPresence`, already computed by the caller?
+   *
+   * **355.2.b**: "Some Game Effects may grant players permission to play Units to
+   * locations that are not normally Valid. **Such locations become Valid for the
+   * purposes of Playing the Unit.**" So a card that prints its own destination
+   * has made that destination valid, and 813's narrowing describes the ORDINARY
+   * valid set rather than overriding a permission.
+   *
+   * Passed in rather than asked here, for the reason `ambushCard` is: the grant
+   * depends on the cost unit for Stalking Wolf, so the enumerator and the
+   * validator must hand this predicate the same answer they used for the
+   * presence check, or the two disagree — which is this repo's
+   * offered-then-refused class.
+   */
+  placementGranted?: boolean,
 ): boolean {
   // Perched Grimwyrm's "only". Checked FIRST because it is the narrowest gate:
   // it refuses destinations the ordinary rules would allow, and composing it
@@ -375,6 +392,24 @@ export function mayPlayUnitToBattlefield(
   // Without this the keyword was unreachable: the card gained Reaction timing and
   // then had nowhere legal to go.
   if (ambushCard !== undefined && ambushReactionAt(state, playerIndex, ambushCard, battlefieldId)) return true;
+  // **A card that prints its own destination widens 813 the same way** — 355.2.b
+  // makes such a location Valid, and `[Ambush]`'s 822.1.c ("adds options to
+  // locations that are valid for a Unit to be played to") is the same mechanism
+  // spelled out for a keyword instead of on a card.
+  //
+  // Reported from playtesting: *"unable to play rengar, pouncing to a
+  // battlefield where i am attacking."* SFD-025 prints "[Reaction] ... I can be
+  // played to a battlefield you're attacking", and 813's narrowing below cancelled
+  // exactly that — the grant was registered, the enumerator consulted it, and
+  // then this line refused every battlefield he does not control. A battlefield
+  // you are ATTACKING is never one you control, so the clause was unreachable and
+  // the card was a vanilla [Assault 2] body.
+  //
+  // The same sentence one gate up already records this failure for [Ambush]:
+  // "without this the keyword was unreachable: the card gained Reaction timing
+  // and then had nowhere legal to go." Rengar is that, with the permission
+  // printed on the card instead of carried by a keyword.
+  if (placementGranted === true) return true;
   const destination = state.battlefields.find((bf) => bf.id === battlefieldId);
   return destination === undefined || destination.controllerId === state.players[playerIndex].id;
 }

@@ -2837,6 +2837,16 @@ export function legalActions(state: GameState): PlayerAction[] {
             if (bf.id !== fromHiddenBattlefieldId) continue;
           } else {
             const hasPresence = (bf.units[actor.id]?.length ?? 0) > 0;
+            // Computed ONCE and handed to both gates below. It used to be asked
+            // only when presence was missing, which left 813's narrowing blind to
+            // a card that names its own destination — see `mayPlayUnitToBattlefield`.
+            const placementGranted = mayPlaceWithoutPresence(
+              state,
+              playerIndex,
+              card.defId,
+              bf,
+              variant.additionalCostUnitInstanceId,
+            );
             // "An OPEN battlefield" is unoccupied AND uncontrolled (170.11.c), so
             // this is asked per battlefield rather than once per card. Same shared
             // predicate the validator uses.
@@ -2844,15 +2854,14 @@ export function legalActions(state: GameState): PlayerAction[] {
             // WHICH unit is paying — the same battlefield qualifies under one
             // variant and not another, so this must be asked per variant rather
             // than once per card. Every other grant ignores the argument.
-            if (!hasPresence && !mayPlaceWithoutPresence(state, playerIndex, card.defId, bf, variant.additionalCostUnitInstanceId))
-              continue;
+            if (!hasPresence && !placementGranted) continue;
             // Rule 813 narrows a Unit's destinations outside a Neutral Open state to
             // your base or a battlefield you control. Checked here as well as in the
             // validator, via the same shared predicate: without it, enumeration
             // offered a [Reaction] Unit a reinforce destination the validator then
             // refused, and the AI (which trusts legalActions and calls the executor
             // directly) threw on it mid-game.
-            if (!mayPlayUnitToBattlefield(state, playerIndex, bf.id, card.defId, card)) continue;
+            if (!mayPlayUnitToBattlefield(state, playerIndex, bf.id, card.defId, card, placementGranted)) continue;
             // The TIMING half, asked per destination — `[Ambush]` grants Reaction
             // into this battlefield specifically (822.1.b). Without it an Ambush
             // unit that passed the card-level gate would be offered at every

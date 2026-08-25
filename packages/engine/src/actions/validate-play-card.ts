@@ -506,6 +506,26 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
 
   const { card, payment } = action;
 
+  /**
+   * Does this card's OWN text name the destination it is being played to?
+   *
+   * Computed ONCE, here, and read by BOTH gates that care: 813's narrowing
+   * immediately below, and the presence rule further down. They used to ask
+   * separately — 813 not at all — which is how Rengar - Pouncing's printed "I can
+   * be played to a battlefield you're attacking" was consulted by the presence
+   * rule and then cancelled by 813. See `timing.mayPlayUnitToBattlefield`.
+   */
+  const placementGranted =
+    card.kind === "Unit" && action.destinationBattlefieldId !== undefined
+      ? (() => {
+          const bf = state.battlefields.find((b) => b.id === action.destinationBattlefieldId);
+          return (
+            bf !== undefined &&
+            mayPlaceWithoutPresence(state, action.playerIndex, card.defId, bf, action.additionalCostUnitInstanceId)
+          );
+        })()
+      : false;
+
   // Rule 813's destination restriction for a Unit played outside a Neutral Open
   // state — shared with legal-actions so enumeration can't offer a destination
   // this then refuses (see mayPlayUnitToBattlefield).
@@ -515,7 +535,14 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     card.kind === "Unit" &&
     action.fromHiddenBattlefieldId === undefined &&
     action.destinationBattlefieldId !== undefined &&
-    !mayPlayUnitToBattlefield(state, action.playerIndex, action.destinationBattlefieldId, card.defId, card)
+    !mayPlayUnitToBattlefield(
+      state,
+      action.playerIndex,
+      action.destinationBattlefieldId,
+      card.defId,
+      card,
+      placementGranted,
+    )
   ) {
     return fail(`${card.name} can only be played to your base or a battlefield you control while a Showdown is open`);
   }
@@ -872,10 +899,10 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     // Same cost-unit argument the enumerator passes. Without it a Stalking Wolf
     // action that enumeration legitimately offered is refused here, which is the
     // offered-then-refused crash from the other direction.
-    if (
-      !hasPresence &&
-      !mayPlaceWithoutPresence(state, action.playerIndex, card.defId, destination, action.additionalCostUnitInstanceId)
-    ) {
+    // `placementGranted` is the value hoisted above the 813 gate — one answer,
+    // read by both, so the two cannot disagree about whether this card names its
+    // own destination.
+    if (!hasPresence && !placementGranted) {
       return fail(`You can only play a unit directly to a battlefield where you already have units`);
     }
   }
