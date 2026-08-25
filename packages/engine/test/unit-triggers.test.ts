@@ -1,27 +1,41 @@
 import { describe, expect, it } from "vitest";
 import { dispatchOnPlayUnit, targetingForUnitTrigger, unitTriggerHasVisionChoice } from "../src/engine/unit-triggers.js";
-import { makeState, makeUnit, playUnitTrigger, realUnitInstance } from "./fixtures.js";
+import { answerDecisions, makeState, makeUnit, playUnitTrigger, realUnitInstance } from "./fixtures.js";
+
+/**
+ * Plays a unit and answers every parked `[Vision]` question with `choice`.
+ *
+ * The recycle used to ride in on the action (`{ visionRecycle: true }`). Since
+ * 2026-08-25 it is a parked decision — **817.2.a** gives a choice per instance
+ * and **402.1** puts a triggered "you may" at resolution — so a test that only
+ * plays the unit leaves the question outstanding and sees the deck unmoved.
+ */
+function predict(state: ReturnType<typeof makeState>, unit: ReturnType<typeof realUnitInstance>, choice: "recycle" | "keep") {
+  return answerDecisions(playUnitTrigger(state, unit, 0, "base"), (options) =>
+    options.find((o) => o.id === choice)?.id ?? options[0]!.id,
+  );
+}
 
 describe("Vision (Mystic Poro, Sai Scout): look at top card, optionally recycle", () => {
-  it("recycle=true moves the top card to the bottom of the deck", () => {
+  it("answering 'recycle' moves the top card to the bottom of the deck", () => {
     const mysticPoro = realUnitInstance("OGN-171");
     const top = realUnitInstance("OGN-210");
     const rest = realUnitInstance("OGN-215");
     let state = makeState();
     state.players[0]!.deck = [top, rest];
 
-    state = playUnitTrigger(state, mysticPoro, 0, "base", { visionRecycle: true });
+    state = predict(state, mysticPoro, "recycle");
 
     expect(state.players[0]!.deck.map((c) => c.instanceId)).toEqual([rest.instanceId, top.instanceId]);
   });
 
-  it("recycle=false leaves the deck order unchanged", () => {
+  it("answering 'keep' leaves the deck order unchanged", () => {
     const saiScout = realUnitInstance("OGN-174");
     let state = makeState();
     state.players[0]!.deck = [realUnitInstance("OGN-210"), realUnitInstance("OGN-215")];
     const before = state.players[0]!.deck.map((c) => c.instanceId);
 
-    state = playUnitTrigger(state, saiScout, 0, "base", { visionRecycle: false });
+    state = predict(state, saiScout, "keep");
 
     expect(state.players[0]!.deck.map((c) => c.instanceId)).toEqual(before);
   });

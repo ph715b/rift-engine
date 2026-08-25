@@ -8,38 +8,37 @@ import type { GameState } from "../src/model/game-state.js";
 import type { PlayCardAction } from "../src/actions/player-action.js";
 
 /**
- * **`[Vision]`'s keyword machinery covers UNITS only, and exactly one Gear in the
- * pool prints the keyword.**
+ * **`[Vision]` fires from the UNIT path only, and exactly one Gear in the pool
+ * prints the keyword.**
  *
- * **817.1.a**: *"It is present on Permanents"* — and a Gear is a Permanent. But
- * `applyVision` is private to `unit-triggers.ts` and reached only from
- * `dispatchOnPlayUnit`, and both `legal-actions` and `validate-play-card` gate the
- * `visionRecycle` fan-out on `card.kind === "Unit"`. So a Gear printing `[Vision]`
- * predicts nothing.
+ * **817.1.a**: *"It is present on Permanents"* — and a Gear is one. But
+ * `dispatchOnPlayUnit` is the only thing that fires the keyword, so a Gear
+ * printing `[Vision]` gets nothing from it.
  *
  * **UNL-161 Divining Shells is that Gear, and it is not broken** — its `[Vision]`
- * half is implemented as a per-card parked decision in `effects/order.ts`. Its own
- * note argues that implementation is MORE conformant than the Unit path, and it is
- * right: **817.1.a** makes Vision a *triggered* ability, and **402.1** puts a
- * triggered ability's "you may" at RESOLUTION — *"If the first part of a Triggered
- * Ability's effect is 'you may,' … its controller decides whether or not to
- * perform it"* then. The Unit path decides at ANNOUNCE, by fanning the action into
- * a recycle-true and a recycle-false copy.
+ * half is a per-card trigger in `effects/order.ts` that parks the same question
+ * the Unit path now parks. Both routes end in `decisions.ts`' `vision-predict`.
  *
- * # So what is actually at risk
+ * # What this file is actually for
  *
- * Nothing today. **A SECOND Gear printing `[Vision]` would silently do nothing** —
- * no error, no red test, and `isCardImplemented` satisfied by whatever else the
- * card does. That is the silently-inert-printing class, and this file exists to
- * turn it into a loud failure rather than to change any behaviour.
+ * **A SECOND Gear printing `[Vision]` would silently do nothing** — no error, no
+ * red test, and `isCardImplemented` satisfied by whatever else the card does.
+ * That is the silently-inert-printing class, and the population assertions below
+ * turn it into a loud failure by name.
  *
- * Generalising the Unit path to Permanents was considered and NOT done: it would
- * mean either giving the Gear the Unit path's announce-time choice — which
- * `effects/order.ts` already reasoned is the worse of the two, and would be a
- * deliberate step away from 402.1 — or rewriting the Unit path onto a parked
- * decision, which changes the action space, the `PlayCardAction` shape and the web
- * UI to fix a divergence with no observable consequence. The Unit path's
- * announce-time choice is recorded as its own row in `docs/rules-conformance.md`.
+ * # What changed on 2026-08-25
+ *
+ * This file used to record the two paths as DIFFERENT, and argue that unifying
+ * them was not worth it: the Unit path decided its "you may" at ANNOUNCE via a
+ * `visionRecycle` fan-out, the Gear asked at resolution, and no player could see
+ * the difference.
+ *
+ * That argument was wrong on its own terms, because the same refactor also closed
+ * a divergence a player CAN see: **817.2**, *"Multiple instances of Vision trigger
+ * separately"*, which a single boolean on the action cannot express — a Mystic
+ * Poro played beside a Gemcraft Seer predicted once and should predict twice.
+ * `keyword-auras.test.ts` measures that now. The Unit path was moved onto the
+ * Gear's parked decision, not the other way round.
  */
 
 const DIVINING_SHELLS = "UNL-161";
@@ -75,7 +74,18 @@ describe("the population this rests on", () => {
   });
 });
 
-describe("the gate really is Unit-only — measured, not inferred", () => {
+describe("both paths now ask the SAME parked question", () => {
+  /**
+   * **Rewritten 2026-08-25, and the header above it with it.** This block used to
+   * assert that a `[Vision]` UNIT was fanned into a `visionRecycle: true` and a
+   * `visionRecycle: false` variant while the GEAR got neither — the measurement
+   * that showed the two paths differed.
+   *
+   * They no longer do. The Unit path was moved onto the Gear's parked decision,
+   * which was always the conformant one (**402.1** decides a triggered "you may"
+   * at resolution), and the shared question lives in `decisions.ts` as
+   * `vision-predict`. So the assertion flips: NEITHER is fanned, and BOTH ask.
+   */
   /** One card in hand, with runes enough to cast it. */
   function inHand(defId: string): GameState {
     const card = createCardInstance(registry.get(defId));
@@ -93,9 +103,11 @@ describe("the gate really is Unit-only — measured, not inferred", () => {
   const playsOf = (state: GameState, defId: string): PlayCardAction[] =>
     legalActions(state).filter((a): a is PlayCardAction => a.type === "PlayCard" && a.card.defId === defId);
 
-  it("a [Vision] UNIT is fanned into a recycle-true and a recycle-false variant", () => {
-    // The positive control. `unitTriggerHasVisionChoice` is what both the
-    // enumerator and the validator ask, so this is the shape a Gear does not get.
+  it("a [Vision] UNIT is no longer fanned into recycle-true / recycle-false", () => {
+    // The action-space half. 817.2 makes multiple instances trigger separately, so
+    // a faithful answer on the ACTION would have been 2^N variants multiplied
+    // against every other variant of the play. As a parked question it is N
+    // answers and no action-space growth at all.
     const visionUnit = visionPrinters().find((c) => c.type === "Unit")!;
     const state = inHand(visionUnit.id);
     expect(unitTriggerHasVisionChoice(state, 0, visionUnit.id), "the predicate does not see this unit's keyword").toBe(
@@ -103,20 +115,18 @@ describe("the gate really is Unit-only — measured, not inferred", () => {
     );
 
     const variants = playsOf(state, visionUnit.id).map((a) => a.visionRecycle);
-    expect(variants, "the recycle choice was never offered").toContain(true);
-    expect(variants, "the keep choice was never offered").toContain(false);
+    expect(variants.length, "the unit was not offered at all — the fixture cannot cast it").toBeGreaterThan(0);
+    expect(
+      variants.every((v) => v === undefined),
+      "the announce-time recycle fan-out is back",
+    ).toBe(true);
   });
 
-  it("the [Vision] GEAR gets no such variant — and asks at resolution instead", () => {
-    // Not a bug, and this asserts the CURRENT shape so that a future change to
-    // either path has to come here and say which one it meant.
+  it("...and neither is the GEAR — the two paths agree now", () => {
     const state = inHand(DIVINING_SHELLS);
     const variants = playsOf(state, DIVINING_SHELLS).map((a) => a.visionRecycle);
 
-    expect(variants.length, "Divining Shells was not offered at all — the fixture cannot cast it").toBeGreaterThan(0);
-    expect(
-      variants.every((v) => v === undefined),
-      "a Gear gained the Unit path's announce-time recycle choice — 402.1 wants it asked at resolution",
-    ).toBe(true);
+    expect(variants.length, "Divining Shells was not offered at all").toBeGreaterThan(0);
+    expect(variants.every((v) => v === undefined), "the Gear gained an announce-time choice").toBe(true);
   });
 });

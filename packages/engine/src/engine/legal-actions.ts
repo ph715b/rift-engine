@@ -1685,20 +1685,19 @@ export function legalActions(state: GameState): PlayerAction[] {
       if (!effectVariants.some((v) => v.targetUnitInstanceId === undefined)) effectVariants.push({});
     }
 
-    // [Vision] choice fan-out: every effect variant above also needs a
-    // recycle-true and recycle-false copy, since the choice must already be
-    // decided in the submitted action (this engine can't pause mid-resolution
-    // to ask).
-    // Asked of the BOARD, not just the card: Gemcraft Seer grants [Vision] to
-    // other friendly units, so whether this play needs a recycle choice depends
-    // on what is already in play. `validate-play-card` asks the same function.
-    const hasVision = card.kind === "Unit" && unitTriggerHasVisionChoice(state, playerIndex, card.defId);
-    const afterVision: Partial<PlayCardAction>[] = hasVision
-      ? effectVariants.flatMap((v) => [
-          { ...v, visionRecycle: true },
-          { ...v, visionRecycle: false },
-        ])
-      : effectVariants;
+    // **`[Vision]` is no longer fanned onto the action.** This used to produce a
+    // `visionRecycle: true` and a `visionRecycle: false` copy of every variant
+    // above, justified by "the choice must already be decided in the submitted
+    // action (this engine can't pause mid-resolution to ask)" — which was already
+    // untrue when it was written: `parkDecision` is used at dozens of sites,
+    // several of them mid-resolution.
+    //
+    // It cost more than a doubling. **817.2** makes multiple instances of Vision
+    // trigger separately and **817.2.a** gives a choice per instance, so a
+    // faithful answer here would have been 2^N variants multiplied against every
+    // other variant of the play. As a parked question it is N answers and no
+    // action-space growth at all. See `decisions.ts`' `vision-predict`.
+    const afterVision: Partial<PlayCardAction>[] = effectVariants;
 
     // Meditation's optional additional cost: a "decline" copy of every
     // variant above, plus one copy per ready friendly unit (base or

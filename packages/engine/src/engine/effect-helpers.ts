@@ -2380,10 +2380,40 @@ export function drawCards(state: GameState, playerIndex: 0 | 1, count: number): 
   for (let drawn = 0; drawn < count; drawn += 1) {
     const player = next.players[playerIndex];
     if (player.deck.length === 0) {
-      // Nothing in either zone: there is no card to draw and no trash to make
-      // one from, so Burn Out cannot repeat. Stopping here is what keeps this
-      // loop finite rather than trading one livelock for another.
-      if (player.trash.length === 0) return next;
+      /**
+       * **A Burn Out still happens when the trash is empty too — 431.3, and it is
+       * what ENDS the game.**
+       *
+       * This used to `return next` here, with the note: *"Nothing in either zone:
+       * there is no card to draw and no trash to make one from, so Burn Out cannot
+       * repeat. Stopping here is what keeps this loop finite rather than trading
+       * one livelock for another."* The finiteness worry was right and the
+       * conclusion was backwards.
+       *
+       * **431.3**: *"A player's Main Deck may remain empty as they Burn Out,
+       * usually because their trash is also empty. When they attempt to perform
+       * the original action again, it will cause another Burn Out."* **431.3.a**
+       * is the terminator: *"Unless some effect intervenes, this will result in
+       * them burning out repeatedly, giving 1 point to an opponent each time,
+       * UNTIL AN OPPONENT PASSES THE VICTORY SCORE AND WINS THE GAME."*
+       *
+       * So the point is not optional decoration on a recycle — it is the mechanism
+       * the rules use to end a game nobody can otherwise close. **315.4.b** makes
+       * the Draw Phase ask once per turn, which is the "attempt the original
+       * action again" 431.3 names, so the points accrue a turn at a time.
+       *
+       * Suppressing it livelocked exactly the games it was meant to protect:
+       * `passive-human` stalled on 2 of 64 seeds at turn ~986 with both boards
+       * empty and neither player able to score. The 16-seed default passed by luck
+       * of which seeds it draws.
+       *
+       * **RETURNS rather than continuing**, which is what keeps this finite: one
+       * Burn Out per `drawCards` call, not one per requested card. A single "draw
+       * 3" is one action, and 431.3 repeats on the next ATTEMPT rather than within
+       * one — the same reading `burn`'s own note takes for a Burn 7 that has run
+       * out. The next turn's Draw Phase is the next attempt.
+       */
+      if (player.trash.length === 0) return burnOut(next, playerIndex);
       next = burnOut(next, playerIndex);
     }
     // **The ordinal is incremented in the same update that moves the card**, and

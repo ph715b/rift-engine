@@ -20,7 +20,7 @@ import {
   withSimultaneousDeaths,
 } from "./effect-helpers.js";
 import { placeRecruitToken, type TokenDestination } from "./token.js";
-import { hasKeyword, keywordOnEntry } from "./granted-keywords.js";
+import { hasKeyword, keywordOnEntry, visionInstancesOnEntry } from "./granted-keywords.js";
 import { effectiveMight } from "./effective-might.js";
 import { findUnitOnBattlefield } from "./target-lookup.js";
 import { defaultCardRegistry } from "../cards/card-registry.js";
@@ -414,14 +414,44 @@ export function mayPlaceWithoutPresence(
   }
 }
 
-function applyVision(state: GameState, casterIndex: 0 | 1, recycle: boolean | undefined): GameState {
-  if (!recycle) return state; // "keep it on top" — no state change needed
-  const actor = state.players[casterIndex];
-  if (actor.deck.length === 0) return state;
-  const [top, ...rest] = actor.deck;
-  const players = [...state.players] as [PlayerState, PlayerState];
-  players[casterIndex] = { ...actor, deck: [...rest, top!] };
-  return { ...state, players };
+/**
+ * **`[Vision]` on entry — one parked question per INSTANCE (817.2).**
+ *
+ * This used to be `applyVision(state, casterIndex, recycle)`, applying a boolean
+ * that rode in on the action. Two things were wrong with that and one edit fixed
+ * both: **817.2.a** gives the player a choice "for each instance of Vision
+ * separately" and a single boolean can only answer once, and **402.1** puts a
+ * triggered "you may" at RESOLUTION while the action decided it at announce.
+ *
+ * The question itself lives in `decisions.ts` as `vision-predict`, beside
+ * `discard` and `draw`, because it belongs to the KEYWORD rather than to any
+ * card — 13 cards print it, two grant it, and one printer is a Gear.
+ *
+ * An empty deck asks nothing: 055's "do as much as you can", and it keeps a
+ * one-option prompt off the board rather than relying on `advanceDecisions` to
+ * retire it. That is the same call UNL-161 Divining Shells' Gear path already
+ * made, which is the path this one was brought into line with.
+ */
+/**
+ * How many `[Vision]` instances this unit entered with, as a count the parked
+ * question can repeat over.
+ *
+ * **A FLOOR of 1 whenever `hasKeyword` says yes**, and that guard is the whole
+ * reason this is not a bare call to `visionInstancesOnEntry`. That function reads
+ * the printed DEFINITION plus the aura table; `hasKeyword` reads the live
+ * INSTANCE, which also carries per-turn grants (Dominus'). A unit holding Vision
+ * only from an instance-level grant would count zero and ask nothing — silently
+ * losing a trigger that the old boolean did fire. `Math.max` keeps the old
+ * behaviour as the floor and lets 817.2's extra instances stack on top.
+ */
+function visionInstanceCount(state: GameState, casterIndex: 0 | 1, unit: UnitInstance): number {
+  const def = defaultCardRegistry().tryGet(unit.defId);
+  return Math.max(1, def === undefined ? 1 : visionInstancesOnEntry(state, casterIndex, def));
+}
+
+function askVision(state: GameState, casterIndex: 0 | 1, instances: number): GameState {
+  if (instances <= 0 || state.players[casterIndex].deck.length === 0) return state;
+  return parkDecision(state, { kind: "vision-predict", playerIndex: casterIndex, count: instances });
 }
 
 /** Token placement moved to token.ts once a Spell (Recruit the Vanguard)
@@ -651,11 +681,16 @@ export function dispatchOnPlayUnit(
   // Equip.
   //
   // Read off the DEPLOYED unit, so the aura's own source is already in play and
-  // the entering unit is already on the board — the moment the rules name. The
-  // recycle choice rode in on the action, because this engine cannot pause
-  // mid-resolution to ask.
+  // the entering unit is already on the board — the moment the rules name.
+  //
+  // **The recycle choice used to ride in on the action**, justified by "this
+  // engine cannot pause mid-resolution to ask", which was already false when it
+  // was written: `parkDecision` is used at dozens of sites, several of them
+  // mid-resolution. It is a parked question now, and the COUNT is what 817.2
+  // needs — `hasKeyword` still gates, because it answers "any at all" more
+  // cheaply and the two cannot disagree about zero.
   const withVision = hasKeyword(state, unit, casterIndex, "Vision")
-    ? applyVision(state, casterIndex, extra?.visionRecycle)
+    ? askVision(state, casterIndex, visionInstanceCount(state, casterIndex, unit))
     : state;
 
   // Rally the Troops' delayed "when a friendly unit is played this turn, buff

@@ -1056,6 +1056,59 @@ export function keywordOnEntry(state: GameState, playerIndex: 0 | 1, def: { id: 
   return false;
 }
 
+/**
+ * **How many INSTANCES of `[Vision]` a card would enter with — 817.2.**
+ *
+ * *"Multiple instances of Vision trigger separately"* (817.2), and **817.2.a**:
+ * *"The player may choose to recycle or not recycle for each instance of Vision
+ * separately."* So this is a COUNT, not the boolean `keywordOnEntry` answers —
+ * a Mystic Poro played beside a Gemcraft Seer has two, and predicts twice.
+ *
+ * **Counted per SOURCE, not per source card name.** Two Gemcraft Seers on the
+ * board are two instances granted, because each is separately granting the
+ * keyword. That is the opposite of `[Ambush]`, where 822.2 says "multiple
+ * instances are redundant" — Vision has no such sentence and 817.2 says the
+ * reverse in as many words.
+ *
+ * Deliberately a SEPARATE function from `keywordOnEntry` rather than a widening
+ * of it: that one short-circuits on the first hit, which is the right shape for
+ * every other entry-triggered question and exactly wrong here. The two share
+ * their scope constraints, and the notes inside `keywordOnEntry` about
+ * `appliesToDef`, positional auras and the gear wearer apply here unchanged —
+ * read them there rather than trusting this summary.
+ */
+export function visionInstancesOnEntry(
+  state: GameState,
+  playerIndex: 0 | 1,
+  def: { id: string; keywords?: Partial<Record<Keyword, number>> },
+): number {
+  let instances = def.keywords && "Vision" in def.keywords ? 1 : 0;
+  for (const [sourceDefId, aura] of Object.entries(KEYWORD_AURAS)) {
+    if (!aura.keywords.includes("Vision")) continue;
+    // A positional aura cannot be answered at entry — the unit has no location
+    // yet. `keywordOnEntry` THROWS on this rather than guessing, and there is no
+    // Vision aura of that shape today; if one is written, that throw is the one
+    // that should fire, so this defers to it by simply not counting.
+    if (aura.source === "gearWearer" || (aura.source === "unit" && aura.scope === "here")) continue;
+    if (aura.appliesToDef !== undefined && !aura.appliesToDef(def)) continue;
+    if (aura.source === "legend") {
+      if (state.players[playerIndex].legend.defId === sourceDefId) instances += 1;
+    } else if (aura.source === "gear") {
+      instances += state.players[playerIndex].activeGear.filter((g) => g.defId === sourceDefId).length;
+    } else {
+      // No instance exclusion, for the reason `keywordOnEntry` records: the card
+      // being played is not on the board yet, so it cannot be the source it is
+      // asking about.
+      const owner = state.players[playerIndex];
+      instances += owner.baseUnits.filter((u) => u.defId === sourceDefId).length;
+      for (const bf of state.battlefields) {
+        instances += (bf.units[owner.id] ?? []).filter((u) => u.defId === sourceDefId).length;
+      }
+    }
+  }
+  return instances;
+}
+
 /** Does this unit have `keyword` right now, printed or granted? The question
  *  every caller actually wants to ask. */
 export function hasKeyword(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1, keyword: Keyword): boolean {

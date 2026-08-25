@@ -131,9 +131,29 @@ been built.
 stays green. Read it to the END (`tail` shows a misleading subset), and when it
 is red, diff the error list against HEAD before assuming the errors are yours.
 
-**Pinned probe figures.** `walkout` is **190 walkouts / 113 points / 29 closed
+**Pinned probe figures.** `walkout` is **185 walkouts / 108 points / 30 closed
 with nobody present**. A change to combat, timing or Might math that moves these
 needs the new number explained, not accepted.
+
+**It moved 190/113/29 -> 185/108/30 on 2026-08-25, and the cause is the ACTION
+SPACE again.** `[Vision]` stopped being fanned onto the action: `legal-actions`
+used to emit a `visionRecycle: true` and a `visionRecycle: false` copy of every
+variant of a Vision play, and the recycle is a parked decision now (817.2.a gives
+a choice per INSTANCE, which a single boolean cannot express). Half as many
+variants for those plays, so the AI's trajectories differ.
+
+Decomposed by CONTROL, same machine: **the `drawCards` Burn Out fix that shipped
+in the same commit leaves it at 190/113/29 exactly**, and `battlefield-reach`
+unmoved at 34 fired. Only the Vision change moves it.
+
+**`passive-human` is the probe that found the Burn Out bug, and its DEFAULT was
+passing by luck.** At 16 seeds it was green at HEAD; at `GAMES=64` it stalled on
+seeds 56 and 59, at turn ~986 with both boards empty. `drawCards` returned early
+when a player's deck AND trash were both empty, so no point was ever awarded and
+the game could not end — while 431.3.a says the repeated Burn Out is exactly what
+ends it. 64/64 now. **Treat a green gate at its default depth as an absence of
+evidence**: the Vision change only surfaced this by pulling one instance into the
+first 16 seeds.
 
 **It moved for the first time on 2026-08-14, from 191/107/32, and the cause was
 not in that list — it was the ACTION SPACE.** `legal-actions` began enumerating

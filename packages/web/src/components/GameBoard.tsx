@@ -30,7 +30,6 @@ import {
   modifiedEnergyCost,
   submit,
           timingRejection,
-  unitTriggerHasVisionChoice,
   victoryScore,
   type CardInstance,
   type ChainItemDescription,
@@ -208,6 +207,10 @@ interface PendingPlay {
    *  see `matchesPendingEquipment`, which cannot tell those apart without it. */
   equipmentChoiceResolved?: boolean;
   trashCardInstanceId?: string;
+  /** **Vestigial since 2026-08-25** and always undefined. `[Vision]`'s recycle is
+   *  a parked engine decision now (`vision-predict`), asked at resolution per
+   *  817.2.a rather than chosen as part of the play. Kept only so a `PlayCardAction`
+   *  serialised before that change still parses. */
   visionRecycle?: boolean;
   additionalCostUnitInstanceId?: string;
   /** Meditation's additional cost is OPTIONAL, so an absent
@@ -313,8 +316,7 @@ type PendingStep =
    *  see `matchesPendingEquipment`. */
   | "equipment"
   | "additionalCost"
-  | "trashCard"
-  | "vision";
+  | "trashCard";
 
 /** Finds the drop zone (a battlefield id, or BASE_ZONE_ID) under a viewport
  *  point, via the `data-dropzone-id` attributes BattlefieldView/the base
@@ -834,7 +836,6 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
       // a free modal card would have played itself, at a mode nobody picked.
       cardModesOf(card).length > 1 ||
       cardNeedsTarget(card) ||
-      (card.kind === "Unit" && unitTriggerHasVisionChoice(state, HUMAN_INDEX, card.defId)) ||
       (card.kind === "Spell" && cardHasOptionalExhaustCost(card.defId))
     );
   }
@@ -992,7 +993,6 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
       }
       if (pending.targetBattlefieldId !== undefined && a.targetBattlefieldId !== pending.targetBattlefieldId) return false;
       if (pending.trashCardInstanceId !== undefined && a.trashCardInstanceId !== pending.trashCardInstanceId) return false;
-      if (pending.visionRecycle !== undefined && a.visionRecycle !== pending.visionRecycle) return false;
       // Resolved-ness of the optional cost is the FLAG, not the id — see
       // PendingPlay.additionalCostResolved's own doc comment.
       if (pending.additionalCostResolved && (a.additionalCostUnitInstanceId ?? null) !== (pending.additionalCostUnitInstanceId ?? null)) {
@@ -1117,9 +1117,6 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     if (targeting.kind === "ownTrashCard" && pending.trashCardInstanceId === undefined) {
       if (offers("trashCardInstanceId")) return "trashCard";
     }
-    if (pending.card.kind === "Unit" && unitTriggerHasVisionChoice(state, HUMAN_INDEX, pending.card.defId) && pending.visionRecycle === undefined) {
-      return "vision";
-    }
     return null;
   }
 
@@ -1163,7 +1160,6 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
       return (
         (a.targetBattlefieldId ?? null) === (pending.targetBattlefieldId ?? null) &&
         (a.trashCardInstanceId ?? null) === (pending.trashCardInstanceId ?? null) &&
-        (a.visionRecycle ?? null) === (pending.visionRecycle ?? null) &&
         (a.additionalCostUnitInstanceId ?? null) === (pending.additionalCostUnitInstanceId ?? null) &&
         (a.destinationBattlefieldId ?? BASE_ZONE_ID) === (pending.destinationBattlefieldId ?? BASE_ZONE_ID) &&
         (a.fromHiddenBattlefieldId ?? null) === (pending.fromHiddenBattlefieldId ?? null) &&
@@ -1181,7 +1177,6 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
       sameTargetList(a.targetUnitInstanceIds, pending.targetUnitInstanceIds) &&
       (a.targetBattlefieldId ?? null) === (pending.targetBattlefieldId ?? null) &&
       (a.trashCardInstanceId ?? null) === (pending.trashCardInstanceId ?? null) &&
-      (a.visionRecycle ?? null) === (pending.visionRecycle ?? null) &&
       (a.additionalCostUnitInstanceId ?? null) === (pending.additionalCostUnitInstanceId ?? null) &&
       (a.destinationBattlefieldId ?? BASE_ZONE_ID) === (pending.destinationBattlefieldId ?? BASE_ZONE_ID) &&
       (a.fromHiddenBattlefieldId ?? null) === (pending.fromHiddenBattlefieldId ?? null) &&
@@ -2191,7 +2186,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   // which also puts the actions row out of reach — so the row's own Cancel
   // hides rather than sitting there visibly unpressable (the overlay carries
   // its own Cancel for exactly this window).
-  const modalStepActive = currentStep === "trashCard" || currentStep === "vision";
+  const modalStepActive = currentStep === "trashCard";
 
   /** The header's "what do I click next" line for the armed card, phrased
    *  after the Java client's own prompts (ui/BoardController.java:2760-2779),
@@ -2552,30 +2547,19 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
         </ChoiceOverlay>
       )}
 
-      {currentStep === "vision" && pendingPlay && (
-        // [Vision] is literally "look at the top card of your Main Deck. You
-        // may recycle it" — so this shows the actual card being decided about
-        // (human.deck[0]), not a bare yes/no. Recycling sends it to the
-        // BOTTOM of the deck (see applyVision, engine/unit-triggers.ts:57-65),
-        // which is what the button says rather than the jargon "recycle."
-        <ChoiceOverlay
-          title={`${pendingPlay.card.name} — [Vision]`}
-          subtitle={
-            human.deck.length > 0
-              ? "The top card of your deck. Keep it there, or send it to the bottom?"
-              : "Your deck is empty — there's nothing to look at, but the choice is still yours to make."
-          }
-          onCancel={() => setPendingPlay(null)}
-        >
-          <div className="choice-overlay-cards">
-            {human.deck[0] && <CardView card={human.deck[0]} />}
-          </div>
-          <div className="choice-overlay-actions">
-            <button onClick={() => setPendingPlay({ ...pendingPlay, visionRecycle: false })}>Keep on top</button>
-            <button onClick={() => setPendingPlay({ ...pendingPlay, visionRecycle: true })}>Recycle to bottom</button>
-          </div>
-        </ChoiceOverlay>
-      )}
+      {/* **The [Vision] overlay used to live here** - "look at the top card of
+          your Main Deck. You may recycle it", shown with the actual card
+          (`human.deck[0]`) rather than a bare yes/no.
+
+          It is gone because the choice is no longer part of PLAYING the card.
+          817.2.a gives a choice per INSTANCE and 402.1 puts a triggered "you
+          may" at resolution, so the engine parks a `vision-predict` decision -
+          one per instance - and the ordinary decision prompt asks it. That is
+          the same surface which already asked it for UNL-161 Divining Shells,
+          whose Gear path always worked this way.
+
+          The card is still named: `decisions.ts` puts the top card's name in the
+          prompt and in both option labels. */}
 
       <div className="board-main" ref={boardCardSize.boardRef} style={boardCardSize.style}>
         {/* The left rail: the AI's column, with YOUR pile cluster pinned beneath

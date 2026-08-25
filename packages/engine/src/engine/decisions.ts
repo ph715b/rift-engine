@@ -1,4 +1,4 @@
-import type { GameState, PendingDecision } from "../model/game-state.js";
+import type { GameState, PendingDecision, PlayerState } from "../model/game-state.js";
 import { isSpellChainEntry } from "../model/game-state.js";
 import type { RunePayment } from "../actions/player-action.js";
 import { domainDecisions, mergeRegistries } from "./effects/index.js";
@@ -188,6 +188,73 @@ const GENERIC: Record<string, DecisionDefinition> = {
    * be queued behind the questions. Being a decision with a single option is what
    * lets that work without inventing a second kind of queued work.
    */
+  /**
+   * **`[Vision]` — "look at the top card of your Main Deck. You may recycle it."**
+   *
+   * A KEYWORD question rather than a card's, which is why it sits here beside
+   * `discard` and `draw` rather than in a per-domain file: 13 cards print it, two
+   * GRANT it, and one of the printers is a Gear. A per-card kind would be filed
+   * under whichever card happened to ask.
+   *
+   * # Why it is a parked decision and not a field on the action
+   *
+   * **817.2**: *"Multiple instances of Vision trigger separately."* **817.2.a**:
+   * *"The player may choose to recycle or not recycle for each instance of Vision
+   * separately."* A Mystic Poro played beside a Gemcraft Seer has two instances
+   * and gets two questions.
+   *
+   * `legal-actions` used to fan every Vision play into a `visionRecycle: true` and
+   * a `visionRecycle: false` copy of every other variant, so a faithful per-instance
+   * answer would have been 2^N variants multiplied against the rest of the play.
+   * `count` here costs one question per instance and nothing in the action space.
+   *
+   * It also moves the choice to where the rules put it. **817.1.a** makes Vision a
+   * TRIGGERED ability and **402.1** decides a triggered "you may" at resolution;
+   * the fan-out decided it at ANNOUNCE. The Gear path (UNL-161 Divining Shells)
+   * had always used a parked decision and was the conformant one; this is the Unit
+   * path being brought to it rather than the reverse.
+   *
+   * **817.2.b** is why nothing is captured up front: *"If the player does not
+   * recycle the top card and nothing else happens in between the triggers
+   * resolving, each instance of Vision will see the same card."* Each answer reads
+   * `deck[0]` live, so keeping shows the same card to the next question and
+   * recycling shows the next one — both fall out of asking late rather than
+   * needing a rule.
+   */
+  "vision-predict": {
+    prompt: (state, d) => {
+      const top = state.players[d.playerIndex].deck[0]?.name ?? "your top card";
+      const left = d.count ?? 1;
+      // The remaining count is in the prompt because two identical questions in a
+      // row are indistinguishable otherwise, and a player who has answered one
+      // has no way to tell the second is not a redraw of the first.
+      return left > 1 ? `[Vision] (${left} left): ${top} — recycle it?` : `[Vision]: ${top} — recycle it?`;
+    },
+    options: (state, d) => [
+      { id: "keep", label: `Keep ${state.players[d.playerIndex].deck[0]?.name ?? "it"} on top` },
+      { id: "recycle", label: `Recycle ${state.players[d.playerIndex].deck[0]?.name ?? "it"}` },
+    ],
+    resolve: (state, d, optionId) => {
+      let next = state;
+      if (optionId === "recycle") {
+        const actor = state.players[d.playerIndex];
+        if (actor.deck.length > 0) {
+          const [top, ...rest] = actor.deck;
+          const players = [...state.players] as [PlayerState, PlayerState];
+          players[d.playerIndex] = { ...actor, deck: [...rest, top!] };
+          next = { ...state, players };
+        }
+      }
+      const remaining = (d.count ?? 1) - 1;
+      // Re-parked only while a card remains to look at — 055's "do as much as you
+      // can" — so an emptied deck stops asking instead of offering a question
+      // about nothing.
+      return remaining > 0 && next.players[d.playerIndex].deck.length > 0
+        ? repeatDecision(next, { ...d, count: remaining })
+        : next;
+    },
+  },
+
   draw: {
     prompt: (state, d) => `Draw ${d.count ?? 1}`,
     options: () => [{ id: "draw", label: "Draw" }],

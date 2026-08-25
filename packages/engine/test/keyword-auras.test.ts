@@ -7,7 +7,7 @@ import { isCardImplemented, partialImplementationNote } from "../src/engine/cove
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type GearInstance, type UnitInstance } from "../src/model/card.js";
 import type { GameState } from "../src/model/game-state.js";
-import { makeState, makeUnit, playUnitTrigger } from "./fixtures.js";
+import { makeState, makeUnit, playUnitTrigger, answerDecisions } from "./fixtures.js";
 
 /**
  * Keyword auras — a keyword granted to OTHER permanents by a source card.
@@ -158,6 +158,30 @@ describe("Taric - Protector (OGN-074): other friendly units here have [Shield]",
   });
 });
 
+/**
+ * Plays a unit and answers every parked `[Vision]` question with `choice`.
+ *
+ * The recycle used to ride in on the action as `{ visionRecycle: true }`. Since
+ * 2026-08-25 it is a parked decision (`decisions.ts`' `vision-predict`), asked at
+ * resolution where **402.1** and **817.2.a** put it — so a test that only plays
+ * the unit leaves the question outstanding and sees nothing move.
+ *
+ * `answerDecisions` drains the whole queue, so a unit with TWO instances answers
+ * twice, which is exactly what 817.2 asks for and what the count test below
+ * measures.
+ */
+function predictWith(
+  state: GameState,
+  unit: UnitInstance,
+  ownerIndex: 0 | 1,
+  destination: "base",
+  choice: "recycle" | "keep",
+): GameState {
+  return answerDecisions(playUnitTrigger(state, unit, ownerIndex, destination), (options) =>
+    options.find((o) => o.id === choice)?.id ?? options[0]!.id,
+  );
+}
+
 describe("Gemcraft Seer (OGN-100): other friendly units have [Vision]", () => {
   /** A card with no [Vision] of its own, and a deck to predict from. */
   function seerState(seerInPlay: boolean): { state: GameState; plain: UnitInstance } {
@@ -191,7 +215,7 @@ describe("Gemcraft Seer (OGN-100): other friendly units have [Vision]", () => {
     const { state, plain } = seerState(true);
     const entered = { ...state, players: [{ ...state.players[0]!, baseUnits: [...state.players[0]!.baseUnits, plain] }, state.players[1]!] } as GameState;
 
-    const predicted = playUnitTrigger(entered, plain, 0, "base", { visionRecycle: true });
+    const predicted = predictWith(entered, plain, 0, "base", "recycle");
     expect(predicted.players[0]!.deck.map((c) => c.instanceId), "the top card was not recycled").toEqual(["next", "top"]);
   });
 
@@ -199,7 +223,7 @@ describe("Gemcraft Seer (OGN-100): other friendly units have [Vision]", () => {
     const { state, plain } = seerState(false);
     const entered = { ...state, players: [{ ...state.players[0]!, baseUnits: [plain] }, state.players[1]!] } as GameState;
 
-    const after = playUnitTrigger(entered, plain, 0, "base", { visionRecycle: true });
+    const after = predictWith(entered, plain, 0, "base", "recycle");
     expect(after.players[0]!.deck.map((c) => c.instanceId)).toEqual(["top", "next"]);
   });
 
@@ -211,22 +235,72 @@ describe("Gemcraft Seer (OGN-100): other friendly units have [Vision]", () => {
       players: [state.players[0]!, { ...state.players[1]!, baseUnits: [enemy], deck: [makeUnit({ instanceId: "their-top" })] }],
     } as GameState;
 
-    const after = playUnitTrigger(withEnemy, enemy, 1, "base", { visionRecycle: true });
+    const after = predictWith(withEnemy, enemy, 1, "base", "recycle");
     expect(after.players[1]!.deck.map((c) => c.instanceId)).toEqual(["their-top"]);
   });
 
-  it("still predicts ONCE for a card that prints [Vision] herself", () => {
-    // "Multiple instances of Vision trigger separately" — a Mystic Poro played
-    // beside the Seer should predict TWICE. This engine's keyword map holds a
-    // VALUE per keyword rather than a COUNT, so it predicts once. Recorded as a
-    // divergence in docs/rules-conformance.md and asserted here so it is a known
-    // number rather than an accident.
+  it("predicts TWICE for a card that prints [Vision] beside her — 817.2", () => {
+    /**
+     * **INVERTED 2026-08-25 from a pin that asserted the wrong answer.** It read
+     * "still predicts ONCE for a card that prints [Vision] herself", because
+     * `effectiveKeywords` holds a VALUE per keyword rather than a COUNT and
+     * `visionRecycle` was a single boolean on the action.
+     *
+     * **817.2**: "Multiple instances of Vision trigger separately." **817.2.a**:
+     * "The player may choose to recycle or not recycle for each instance of
+     * Vision separately."
+     *
+     * The COUNT of questions is the direct measurement, and the deck permutation
+     * below is the second one — on a 3-card deck two recycles are visibly
+     * different from one, which a 2-card deck could not show (two recycles
+     * return it to its starting order).
+     */
     const poro = { ...unit("OGN-171"), instanceId: "poro" };
     const { state } = seerState(true);
-    const entered = { ...state, players: [{ ...state.players[0]!, baseUnits: [...state.players[0]!.baseUnits, poro] }, state.players[1]!] } as GameState;
+    const entered = {
+      ...state,
+      players: [
+        {
+          ...state.players[0]!,
+          baseUnits: [...state.players[0]!.baseUnits, poro],
+          deck: ["a", "b", "c"].map((id) => makeUnit({ instanceId: id, name: id })),
+        },
+        state.players[1]!,
+      ],
+    } as GameState;
 
-    const after = playUnitTrigger(entered, poro, 0, "base", { visionRecycle: true });
-    expect(after.players[0]!.deck.map((c) => c.instanceId)).toEqual(["next", "top"]);
+    // Two instances: her grant, and the Poro's own printed [Vision].
+    let asked = 0;
+    const after = answerDecisions(playUnitTrigger(entered, poro, 0, "base"), (options, decision) => {
+      if (decision.kind === "vision-predict") asked += 1;
+      return options.find((o) => o.id === "recycle")?.id ?? options[0]!.id;
+    });
+
+    expect(asked, "the two instances did not ask two questions").toBe(2);
+    expect(after.players[0]!.deck.map((c) => c.instanceId), "only one recycle landed").toEqual(["c", "a", "b"]);
+  });
+
+  it("...and ONCE for the same card with her absent — the control", () => {
+    // Without this, the count above would also pass on an engine that asked twice
+    // for every [Vision] card regardless of how many instances it really has.
+    const poro = { ...unit("OGN-171"), instanceId: "poro" };
+    const { state } = seerState(false);
+    const entered = {
+      ...state,
+      players: [
+        { ...state.players[0]!, baseUnits: [poro], deck: ["a", "b", "c"].map((id) => makeUnit({ instanceId: id, name: id })) },
+        state.players[1]!,
+      ],
+    } as GameState;
+
+    let asked = 0;
+    const after = answerDecisions(playUnitTrigger(entered, poro, 0, "base"), (options, decision) => {
+      if (decision.kind === "vision-predict") asked += 1;
+      return options.find((o) => o.id === "recycle")?.id ?? options[0]!.id;
+    });
+
+    expect(asked, "one printed instance asked more than once").toBe(1);
+    expect(after.players[0]!.deck.map((c) => c.instanceId)).toEqual(["b", "c", "a"]);
   });
 
   it("is reported as implemented by coverage", () => {

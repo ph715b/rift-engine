@@ -2817,7 +2817,7 @@ export const selfTriggers: Record<string, SelfTriggerDefinition> = {
       // board rather than relying on `advanceDecisions` to retire it.
       state.players[event.ownerIndex].deck.length === 0
         ? state
-        : parkDecision(state, { kind: "UNL-161-predict", playerIndex: event.ownerIndex }),
+        : parkDecision(state, { kind: "vision-predict", playerIndex: event.ownerIndex, count: 1 }),
   },
 };
 
@@ -3747,22 +3747,13 @@ export const decisions: Record<string, DecisionDefinition> = {
    * sees what they are deciding about, and a prompt reading "recycle it?" with no
    * "it" is the one thing that makes this question unanswerable.
    */
-  "UNL-161-predict": {
-    prompt: (state, d) => `Divining Shells: ${state.players[d.playerIndex].deck[0]?.name ?? "your top card"} — recycle it?`,
-    options: (state, d) => [
-      { id: "keep", label: `Keep ${state.players[d.playerIndex].deck[0]?.name ?? "it"} on top` },
-      { id: "recycle", label: `Recycle ${state.players[d.playerIndex].deck[0]?.name ?? "it"}` },
-    ],
-    resolve: (state, d, optionId) => {
-      if (optionId !== "recycle") return state;
-      const actor = state.players[d.playerIndex];
-      if (actor.deck.length === 0) return state;
-      const [top, ...rest] = actor.deck;
-      const players = [...state.players] as [PlayerState, PlayerState];
-      players[d.playerIndex] = { ...actor, deck: [...rest, top!] };
-      return { ...state, players };
-    },
-  },
+  // `UNL-161-predict` used to live here — the Gear path's own copy of the
+  // `[Vision]` question, written per-card because the keyword machinery was
+  // Unit-only. **It was the CONFORMANT one** (402.1 puts a triggered "you may" at
+  // resolution, and it asked there) and it is now the shared `vision-predict` in
+  // `decisions.ts`, which the Unit path was brought onto rather than the reverse.
+  // `count: 1` at the park site above: no aura in the pool grants `[Vision]` to a
+  // Gear, so a Gear has exactly its printed instance.
 };
 
 /** What one category holds for one player, as { instanceId, name } — a rune has

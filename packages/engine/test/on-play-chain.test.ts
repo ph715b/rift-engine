@@ -109,21 +109,28 @@ describe("an on-play unit trigger waits on the chain", () => {
 });
 
 describe("what is deliberately NOT held yet", () => {
-  it("[Vision] still resolves inline, one family behind", () => {
-    // Vision is a keyword whose "predict" the rules describe as its own trigger,
-    // so by the letter it should be held too. It is not, because a family at a
-    // time is what keeps a termination regression bisectable — recorded in
-    // docs/rules-conformance.md rather than left to be discovered.
-    //
-    // Mystic Poro (OGN-171) has [Vision] and no other on-play text, so the deck
-    // moving at play time IS the inline resolution.
+  it("[Vision] asks a PARKED question rather than going on the chain", () => {
+    /**
+     * **Rewritten 2026-08-25.** This used to read "[Vision] still resolves inline,
+     * one family behind", and it did: the recycle rode in on the action as
+     * `{ visionRecycle: true }` and the deck moved during `dispatchOnPlayUnit`.
+     *
+     * It is a parked decision now — **817.2.a** gives a choice per instance and
+     * **402.1** puts a triggered "you may" at resolution. So the deck does NOT
+     * move at play time, and what is left at play time is a question.
+     *
+     * **It still puts nothing on the CHAIN**, which is the claim this file is
+     * about and is unchanged. A parked decision is not a chain item; the "one
+     * family at a time" note above still describes where Vision sits.
+     */
     const state = makeState({ phase: "Action" });
     state.players[0]!.deck = [makeUnit({ name: "Top" }), makeUnit({ name: "Second" })];
     const poro = realUnitInstance("OGN-171");
 
-    const played = dispatchOnPlayUnit(state, poro, 0, "base", { visionRecycle: true });
+    const played = dispatchOnPlayUnit(state, poro, 0, "base", {});
 
-    expect(played.players[0]!.deck[0]!.name, "Vision was held rather than resolved inline").toBe("Second");
+    expect(played.pendingDecisions.map((d) => d.kind), "no [Vision] question was asked").toContain("vision-predict");
+    expect(played.players[0]!.deck[0]!.name, "the deck moved before the question was answered").toBe("Top");
     expect(triggersOn(played), "Vision put something on the chain").toHaveLength(0);
   });
 });

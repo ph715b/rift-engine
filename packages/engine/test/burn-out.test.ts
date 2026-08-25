@@ -75,20 +75,47 @@ describe("Burn Out (431): an empty deck recycles the trash and pays the opponent
     expect(drawCards(refilled, 0, 1).players[1]!.points).toBe(2);
   });
 
-  it("STOPS when the deck and the trash are both empty — no infinite Burn Out", () => {
-    // The guard that keeps the fix from trading one livelock for another: with
-    // nothing in either zone there is no card to draw and none to make, so the
-    // draw simply ends. No point is owed for a Burn Out that cannot happen.
+  it("BURNS OUT with an empty trash too, and pays the point — 431.3", () => {
+    /**
+     * **Inverted 2026-08-25.** This used to read "STOPS when the deck and the
+     * trash are both empty — no infinite Burn Out", asserting that no point was
+     * owed for "a Burn Out that cannot happen".
+     *
+     * **431.3 says it happens**: *"A player's Main Deck may remain empty as they
+     * Burn Out, USUALLY BECAUSE THEIR TRASH IS ALSO EMPTY. When they attempt to
+     * perform the original action again, it will cause another Burn Out."* And
+     * **431.3.a** is why it matters: *"this will result in them burning out
+     * repeatedly, giving 1 point to an opponent each time, until an opponent
+     * passes the Victory Score and wins the game."*
+     *
+     * The point IS the terminator. Suppressing it livelocked exactly the games it
+     * was meant to protect — `passive-human` stalled on 2 of 64 seeds at turn ~986
+     * with both boards empty and neither player able to score, and the 16-seed
+     * default passed by luck of which seeds it draws. It is 64 of 64 now.
+     */
     const state = makeState();
     state.players[0]!.deck = [];
     state.players[0]!.trash = [];
 
     const after = drawCards(state, 0, 3);
 
-    expect(after.players[0]!.hand).toHaveLength(0);
-    expect(after.players[1]!.points).toBe(0);
+    expect(after.players[0]!.hand, "a card was drawn from nothing").toHaveLength(0);
+    expect(after.players[1]!.points, "the Burn Out paid no point").toBe(1);
   });
 
+  it("...and pays it ONCE per draw ACTION, not once per card", () => {
+    // The finiteness guard, and the half that keeps this from trading one
+    // livelock for another. A single "draw 3" is ONE action; 431.3 repeats on the
+    // next ATTEMPT, not within one — the same reading `burn`'s own note takes for
+    // a Burn 7 that has run out. The next turn's Draw Phase (315.4.b) is the next
+    // attempt, which is what makes the points accrue a turn at a time.
+    const state = makeState();
+    state.players[0]!.deck = [];
+    state.players[0]!.trash = [];
+
+    expect(drawCards(state, 0, 1).players[1]!.points).toBe(1);
+    expect(drawCards(state, 0, 7).players[1]!.points, "a draw 7 paid seven points").toBe(1);
+  });
   it("the TURN's own draw burns out too — one funnel, not two", () => {
     // runDraw used to have its own empty-deck no-op. It now goes through
     // drawCards, so a turn draw and a spell draw cannot disagree.

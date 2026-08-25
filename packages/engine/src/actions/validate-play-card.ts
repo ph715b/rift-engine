@@ -798,13 +798,20 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     }
   }
 
-  // Board-aware, and it must stay the SAME question `legal-actions` asks: a
-  // Gemcraft Seer in play makes every other unit's play need a recycle choice,
-  // and an enumerator and a validator disagreeing about that is the
-  // offered-then-refused shape this codebase has shipped three times.
-  if (card.kind === "Unit" && unitTriggerHasVisionChoice(state, action.playerIndex, card.defId) && action.visionRecycle === undefined) {
-    return fail(`${card.name}'s [Vision] requires a recycle choice (true or false)`);
-  }
+  // **`[Vision]` no longer requires a decided `visionRecycle`, and the check that
+  // demanded one is gone.**
+  //
+  // It used to read: "Board-aware, and it must stay the SAME question
+  // `legal-actions` asks: a Gemcraft Seer in play makes every other unit's play
+  // need a recycle choice, and an enumerator and a validator disagreeing about
+  // that is the offered-then-refused shape this codebase has shipped three
+  // times." That agreement still matters — it is just that both sides now ask
+  // NOTHING, because the choice is a parked question (`decisions.ts`'
+  // `vision-predict`) asked at resolution, where **402.1** and **817.2.a** put it.
+  //
+  // An action omitting the field is therefore complete rather than
+  // under-specified, and `PlayCardAction.visionRecycle` survives only so a stored
+  // action from before this change still parses.
 
   // Meditation's optional additional cost: absent means the caster
   // declined it (still legal — "otherwise draw 1"); if present, must be a
