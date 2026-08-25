@@ -37,10 +37,15 @@ Rules**, and — just as importantly — which behaviours have never been checke
 
 ### The open-divergence count, AUDITED 2026-08-25
 
-**43 rows are open divergences, and ZERO are Unverified.** 43 is the number to
-quote, not the ~50 a grep for `DIVERGENT` returns: 18 of those markers sit in
+**41 rows are open divergences, and ZERO are Unverified.** 41 is the number to
+quote, not the ~50 a grep for `DIVERGENT` returns: 20 of those markers sit in
 rows that go on to record the gap as FIXED or Conformant, and 2 are dated
 changelog entries.
+
+**Twelve of the 41 name a UNL card**, which is the batch a 2026-08-24 handoff
+described as "~16". Four of that batch closed on 2026-08-25 — Smoke and Mirrors'
+two halves and `[Vision]`'s two — so the figure moved for a reason rather than
+having been wrong.
 
 **The Unverified column emptied on 2026-08-25**, which is worth knowing because
 this file's own legend still calls Unverified "the default and there is a lot of
