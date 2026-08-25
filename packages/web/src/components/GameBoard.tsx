@@ -2616,9 +2616,12 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
           {/* Absolutely positioned inside this column and mounted only while
               there's something to show, so it adds no row and can't push the
               fixed-height board into overflow. Nothing on the board is
-              draggable while the chain is closed (legalActions offers only
-              PassFocus/FloatRune/ActivateAbility there), so this can't shadow
-              a drop zone's hit-test either. */}
+              draggable while the chain is closed — what legalActions offers
+              there is PassFocus, FloatRune, a [Reaction] play, and (since
+              310.1.a's ability-timing gate) only a [Reaction] ACTIVATION, none
+              of which is a drag. So this can't shadow a drop zone's hit-test
+              either. The list is deliberately not relied on beyond that: it has
+              narrowed once already. */}
           {(chainItems.length > 0 || resolvingChainItem) && (
             <ChainView
               items={chainItems}

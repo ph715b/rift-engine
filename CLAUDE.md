@@ -50,10 +50,27 @@ It is a NEW probe rather than a change to the pinned ones, deliberately: making
 `walkout` roll real battlefields would move 190/113/29 and making `reachability`
 do it would move every per-set figure.
 
-Pinned at **132 games, 64 in play, 35 of 38 triggered ones firing, 0 invalid**,
-with fired/triggered per set OGN 14/16, SFD 10/10, UNL 9/9, VEN 2/3. The silent
+Pinned at **132 games, 64 in play, 34 of 38 triggered ones firing, 0 invalid**,
+with fired/triggered per set OGN 14/16, SFD 10/10, UNL 8/9, VEN 2/3. The silent
 ones are conditional rather than broken and are named in the probe's own header;
 a name appearing there that the header does not explain is the finding to chase.
+
+**It went 35 -> 34 and UNL 9/9 -> 8/9 on 2026-08-24, and the FOURTH silent name
+is UNL-215 Star Spring — which is pure TRAJECTORY, not a break.** Star Spring
+reads "the first time a player plays a non-token unit here each turn"; it has no
+connection to what changed, which was the ability-timing gate (310.1.a). The AI
+is offered fewer actions inside Showdowns, so it decides differently, and across
+these 132 fixed seeds nobody played a non-token unit at Star Spring.
+
+Decomposed by CONTROL, three runs, same machine: **at HEAD, 35 fired / UNL 9/9 /
+3 silent; with the same change's `killSelf` fix ALONE, identical; with the timing
+gate, 34 / UNL 8/9 / 4 silent.** So the gate is the sole cause and the second fix
+in that commit moves nothing.
+
+**Expect this probe to move for any change to what the AI may DO**, exactly as
+`walkout` and `reachability` do, and re-derive it by control rather than reading
+a drop as a regression. This is the same shape as `reachability`'s SFD 188 -> 186
+note further down: the ACTION SPACE, not the rules the cards implement.
 
 **It went 36 -> 35 and OGN 15/16 -> 14/16 on 2026-08-23, and the THIRD silent
 name is OGN-293 The Grand Plaza — which the probe is now RIGHT about.** "When you
@@ -140,8 +157,27 @@ by control, exactly as above.
 **`walkout` IS deterministic — five runs, same figures — and `reachability` is
 NOT.** Do not carry an assumption from one to the other; see the pin note below.
 
-`reachability` is pinned at **796, against an observed 800** of 868 cards needing
+`reachability` is pinned at **796, against an observed 796** of 868 cards needing
 code ever exercised, at its default **500 games per mode**.
+
+**The observed figure fell 800 -> 796 on 2026-08-24 and the pin HELD, so the
+headroom described below is now ZERO.** The cause is the ability-timing gate
+(310.1.a): a Default-speed activated ability can no longer be used in a Showdown,
+on the opponent's turn, or onto a chain, and 148 of the 184 registered abilities
+are Default. Repeating across two independent runs of the gated build.
+
+Diagnosed BY NAME off `neverExercised`, per the rule further down: six cards left
+and two arrived. **Four of the six are the change working** — UNL-185 Pyke -
+Bloodharbor Ripper in all three printings (a Legend never offerable as a card, so
+its ability is the only route to it) and VEN-087 Hextech Disc. The rest is
+trajectory: VEN-191 Zed is `[Action]`-timed and kept its window, and VEN-066
+Temporal Breach and VEN-126 Ki Barrier have no activated ability at all.
+
+**So a red here is now as likely to be noise as regression** — diff
+`neverExercised` against those names before believing it. Buying the margin back
+by lowering the floor is a call for the project owner: the probe's own note
+argues against it in as many words, "a floor that follows a drop downwards stops
+being able to catch the next one".
 
 **The observed figure went 798 -> 800 on 2026-08-19 and the pin did NOT move,
 deliberately.** The probe PRINTS "bump PINNED_UNION" whenever observed exceeds
@@ -154,7 +190,8 @@ machine**, so treat any single timing as noise unless it is decomposed by
 control.
 
 **Read the PER-SET figures, not only the union.** OGN **228**, OGS **21**, SFD
-**186**, UNL **207**, VEN **158**. **VEN joined `COMPLETE_SETS` on 2026-08-19** —
+**187**, UNL **204**, VEN **156** — SFD +1, UNL -3 and VEN -2 on 2026-08-24, all
+from the ability-timing gate described above. OGN and OGS did not move. **VEN joined `COMPLETE_SETS` on 2026-08-19** —
 all five sets are declared, and `everyUnexercisedExplained` now covers the whole
 pool.
 
@@ -412,6 +449,35 @@ the one file, not of the tooling.
 `ocial`, `eect`, `nal`), or grep a fragment that contains no f-ligature at all
 and read around the hit. When quoting from it into a comment or a doc, restore
 the letters by hand and say you did.
+
+## The CARD DATA mojibakes em-dashes, in OGN and OGS only
+
+`ogn.json` carries **102 of them on 96 lines** and `ogs.json` **3** — the byte
+sequence U+00E2 U+0080 U+0094, an em-dash's UTF-8 bytes decoded as Latin-1 —
+while `sfd/unl/ven.json` carry a clean **U+2014** (90 / 39 / 42). It is in the
+source JSON, not introduced by `card-loader`. Six more OGN entries carry
+U+00E2 U+0080 U+0099, the same damage done to a right single quote.
+
+**It reads as a per-SET finding, which is what makes it dangerous.** Found
+2026-08-24 while classifying activated-ability speed keywords: OGN, OGS and SFD
+all print `[Exhaust]: [Reaction] — [Add] ...`, and a predicate matching the real
+dash kept the four SFD cards and dropped all ten OGN/OGS ones. That looks exactly
+like "the older sets don't print this keyword" and it is an encoding bug. Ten
+abilities — every rune Seal, Energy Conduit, Kai'Sa, Darius, Lux - Crownguard and
+Malzahar — would have been silently demoted to Default speed.
+
+Match both, or normalise before matching. The three characters are literal in
+the file, so quoting them into a shell is what goes wrong. Write the escapes and
+let node resolve them — this prints 102:
+
+```bash
+node -e "const t=require('fs').readFileSync('packages/engine/src/cards/ogn.json','utf8');
+console.log((t.match(/\u00e2\u0080\u0094/g)||[]).length)"
+```
+
+In a regex the alternation is `/(?:\u2014|\u00e2\u0080\u0094)/`, and
+`ability-timing.test.ts` uses exactly that. It is the difference between finding
+39 of the pool's speed-tagged abilities and finding 20.
 
 ## Measure before planning
 

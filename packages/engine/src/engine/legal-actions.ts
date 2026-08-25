@@ -69,6 +69,7 @@ import {
 } from "./card-effects.js";
 import {
   abilitiesAvailableTo,
+  abilityTimingTier,
   activationCostOf,
   activationPayment,
   availableModes,
@@ -93,6 +94,7 @@ import {
   mayPlayUnitToBase,
   mayPlayUnitToBattlefield,
   timingTierOf,
+  mayActivateAbilityNow,
 } from "./timing.js";
 import { RAINBOW, hiddenCardIsPlayable, hideCostFor, isHiddenCard, mayHideWithEnergy } from "./hidden.js";
 import type { Domain } from "../model/domain.js";
@@ -377,6 +379,23 @@ function activateAbilityCandidates(state: GameState, actor: PlayerState, playerI
     // A list, not a lookup: Heimerdinger offers every friendly permanent's
     // ability with himself as the source, so one card can be several candidates.
     for (const { abilityDefId } of abilitiesAvailableTo(state, playerIndex, permanent)) {
+      // **310.1.a's timing gate, and it is the NARROW default.** An ability with
+      // no printed speed keyword may be activated only "when a player has
+      // priority on their turn in a Neutral Open state" — not in a Showdown, not
+      // on the opponent's turn, not onto a chain. `[Action][>]` (806.1.c.2) and
+      // `[Reaction][>]` (813.1.c.2) are the two widenings, and they are printed
+      // on the ABILITY rather than the card.
+      //
+      // This call used to sit outside the gate entirely — `activateAbilityCandidates`
+      // is pushed below `isNeutralOpen`'s if/else, so every one of the 184
+      // registered abilities was offered in every window. Reported from
+      // playtesting on `[Equip]`, which 818.1 makes an Activated Ability and
+      // which no card in this pool re-times under 818.1.c.5.
+      //
+      // Mirrored EXACTLY in `validate-activate-ability`, which had the same
+      // permissiveness and the same justification written into it. One side
+      // alone is this repo's offered-then-refused class.
+      if (!mayActivateAbilityNow(state, playerIndex, abilityTimingTier(abilityDefId))) continue;
       // Each variant carries the cost choices of the MODE that produced it —
       // Jax - Grandmaster At Arms prices his two modes differently, so a single
       // list per ability would charge one mode's price for the other's job.

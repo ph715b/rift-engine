@@ -265,25 +265,71 @@ describe("Vi - Hotheaded (UNL-030): [2][Fury]: double my Might this turn", () =>
     expect(mightOf(after, vi.instanceId)).toBe(VI_PRINTED_MIGHT * 2);
   });
 
-  it("PINS THE DIVERGENCE: an ATTACKING Vi with [Assault 2] doubles 3, and 432.1 says 5", () => {
-    // 807.1.c makes `[Assault]` short for "While I am an attacker, I have +X [M]",
-    // and 432.1's worked example doubles a Defender's Shield-inclusive Might. So
-    // an attacking Vi with [Assault 2] has a current Might of 5 and should get +5.
-    // This engine models Assault/Shield as combat-ROLE terms that only apply under
-    // `ctx.isCombat`, and every non-damage Might reference — Last Stand's doubling
-    // included — asks with `isCombat: false`. She therefore doubles 3.
-    //
-    // Delete this test WITH the divergence, for both cards at once.
+  /**
+   * **The `[Assault]` half of the 432.1 divergence became UNREACHABLE on
+   * 2026-08-24, and this test is what is left of the pin that used to assert it.**
+   *
+   * It read: *"PINS THE DIVERGENCE: an ATTACKING Vi with [Assault 2] doubles 3,
+   * and 432.1 says 5"*, and its fixture opened a Combat Showdown so that
+   * `[Assault]` would apply at all — **807.1.c** makes it short for "While I am
+   * an attacker, I have +X [M]". Then it activated her ability inside that
+   * Showdown.
+   *
+   * **That activation is now illegal.** Her ability prints no speed keyword, so
+   * **310.1.a** times it to "a Neutral Open state" on its controller's turn.
+   * `currentMightContext` reports `isCombat: true` for exactly one situation —
+   * `showdownKind === "Combat"` at this unit's own battlefield — and a
+   * default-speed ability can no longer be activated there. So there is no legal
+   * board on which her doubling reads an attacking Might, and switching her
+   * resolver to a combat-aware context would be provably inert.
+   *
+   * **The gap is unreachable rather than closed**, and the two are different
+   * claims: `docs/rules-conformance.md` says so, and an ability that later prints
+   * `[Action][>]` or `[Reaction][>]` AND reads current Might would make it
+   * reachable again. Today none of the twenty speed-tagged abilities reads Might
+   * at all — see `ability-timing.test.ts` for the list and what pins it.
+   *
+   * **Last Stand's half was already closed**, on 2026-08-23, by teaching that
+   * card to read current Might. The deleted pin's failure message still said
+   * "delete this pin and Last Stand's", which had been stale since that day.
+   */
+  it("her default-speed ability cannot be activated inside a Combat Showdown (310.1.a)", () => {
     const vi = realUnitInstance(VI_HOTHEADED);
     const state = makeState({ phase: "Action", activePlayerIndex: 0 });
     state.battlefields[0]!.units = { p1: [vi], p2: [makeUnit({ instanceId: "enemy", might: 1 })] };
     state.players[0]!.channeled = runes(6);
     const armed = grantKeywordThisTurn(state, vi.instanceId, "Assault", 2);
 
+    // **The control, and it is the whole test.** Her ability IS offered on this
+    // exact board while the turn is Neutral Open — same unit, same runes, same
+    // grant. So the refusal below is the Showdown, not an unaffordable cost or a
+    // fixture that never had a legal activation in it.
+    expect(
+      activationsOf(armed, vi.instanceId).length,
+      "she was not activatable even in a Neutral Open state — this fixture measures nothing",
+    ).toBeGreaterThan(0);
+
     // Player 0 applied Contested, so 464.2.c makes them the Attacker and Focus is
-    // theirs — which is what lets `legalActions` enumerate her ability at all.
+    // theirs — they hold priority and could pay. The ONLY thing standing in the
+    // way is the timing tier.
     const fighting = beginCombatAt(armed, "bf1", 0);
     expect(fighting.turnState, "the fixture never opened a Showdown").toBe("Showdown");
+    expect(fighting.showdownKind).toBe("Combat");
+
+    expect(
+      activationsOf(fighting, vi.instanceId),
+      "a default-speed ability was offered inside a Showdown — 310.1.a times it to a Neutral Open state",
+    ).toHaveLength(0);
+  });
+
+  it("...and [Assault] really would have applied there — why the divergence is unreachable, not absent", () => {
+    // Without this, the test above would also pass on a board where the grant had
+    // silently failed to land, and the claim "there is no legal board on which her
+    // doubling reads 5" would be true for the wrong reason.
+    const vi = realUnitInstance(VI_HOTHEADED);
+    const state = makeState({ phase: "Action", activePlayerIndex: 0 });
+    state.battlefields[0]!.units = { p1: [vi], p2: [makeUnit({ instanceId: "enemy", might: 1 })] };
+    const fighting = beginCombatAt(grantKeywordThisTurn(state, vi.instanceId, "Assault", 2), "bf1", 0);
 
     const combatMight = effectiveMight(fighting, findAnywhere(fighting, vi.instanceId)!, 0, {
       isCombat: true,
@@ -291,23 +337,8 @@ describe("Vi - Hotheaded (UNL-030): [2][Fury]: double my Might this turn", () =>
       combatRole: "remaining",
       battlefieldId: "bf1",
     });
-    expect(combatMight, "the [Assault] grant never landed — the fixture measures nothing").toBe(VI_PRINTED_MIGHT + 2);
-
-    const candidates = activationsOf(fighting, vi.instanceId);
-    expect(candidates.length, "her ability is not activatable inside a Showdown").toBeGreaterThan(0);
-    // Resolve only the CHAIN, leaving the Showdown open: settling it would run the
-    // damage step and the reading would be about combat rather than the doubling.
-    let after = accept(fighting, candidates[0]!);
-    for (let guard = 0; guard < 8 && (after.spellChain.length > 0 || after.pendingTriggers.length > 0); guard += 1) {
-      after = accept(after, legalActions(after).find((a) => a.type === "PassFocus"));
-    }
-
-    expect(
-      findAnywhere(after, vi.instanceId)!.mightThisTurn,
-      "the doubling now counts [Assault] — the divergence closed, so delete this pin and Last Stand's",
-    ).toBe(VI_PRINTED_MIGHT);
+    expect(combatMight, "the [Assault] grant never landed").toBe(VI_PRINTED_MIGHT + 2);
   });
-
   it("is reported as implemented by coverage", () => {
     expect(isCardImplemented(registry.get(VI_HOTHEADED))).toBe(true);
   });

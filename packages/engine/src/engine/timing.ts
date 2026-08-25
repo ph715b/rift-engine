@@ -192,7 +192,23 @@ export function mayPlayCardNow(
 
   const ambushed =
     destinationBattlefieldId !== undefined && ambushReactionAt(state, playerIndex, card, destinationBattlefieldId);
-  switch (fromHidden || ambushed ? "Reaction" : timingTierOf(card)) {
+  return tierAllowsState(state, fromHidden || ambushed ? "Reaction" : timingTierOf(card));
+}
+
+/**
+ * Does a tier's permission cover the state the turn is currently in?
+ *
+ * The three windows, in one place, because **the same three sentences govern
+ * cards and ACTIVATED ABILITIES alike** and the keywords say so in matched
+ * pairs: 806.1.c.1/806.1.c.2 for `[Action]`, 813.1.c.1/813.1.c.2 for
+ * `[Reaction]`. Extracted from `mayPlayCardNow` when `mayActivateAbilityNow`
+ * needed the identical switch — a second copy is exactly the shape CLAUDE.md
+ * records drifting apart.
+ *
+ * Says nothing about WHO may act; both callers ask `actingPlayerIndex` first.
+ */
+export function tierAllowsState(state: GameState, tier: TimingTier): boolean {
+  switch (tier) {
     case "Reaction":
       // Every window, including a closed Chain — the new item resolves before
       // what's already there (161.1.a), which the LIFO chain gives for free.
@@ -204,6 +220,48 @@ export function mayPlayCardNow(
       // Open State, and outside Showdowns.
       return state.chainOpen && state.turnState === "Neutral";
   }
+}
+
+/**
+ * **May `playerIndex` activate an ability of this tier right now?**
+ *
+ * # The rule, and how narrow the default really is
+ *
+ * **310.1.a** is the precise sentence: *"By default, cards can be played and
+ * abilities activated **only when a player has priority on their turn in a
+ * Neutral Open state**."* **381** says the same thing more loosely — *"All
+ * Activated Abilities can only be activated on the Controlling Player's Turn and
+ * during an Open State"* — and **316.5.b** confirms the actor: in the Neutral
+ * Open State *"only the Turn Player has the ability to play spells or activate
+ * abilities."*
+ *
+ * **381 alone does NOT settle it, and reading it alone gets this wrong.** A
+ * Showdown with an empty chain is *also* an Open State (**309.2**, and the
+ * "Showdown Open State" of 323.14) — so "on your turn and during an Open State"
+ * would let a default ability fire inside your own Showdown. 310.1.a's *Neutral*
+ * is the word that excludes it, and it is the word `mayPlayCardNow` has always
+ * used for cards.
+ *
+ * The two widenings are keywords, and both are printed on the ability rather
+ * than the card: **806.1.c.2** `[Action][>]` — *"This can be activated during
+ * showdowns on any player's turn"* — and **813.1.c.2** `[Reaction][>]`, which
+ * adds Closed States and by **813.1.b** grants everything Action grants.
+ *
+ * # What this replaced
+ *
+ * `validate-activate-ability` applied NO timing check to any activation, and
+ * `legal-actions` pushed `activateAbilityCandidates` outside its `isNeutralOpen`
+ * branch — so all 184 registered abilities were Reaction-speed. Both files said
+ * so in their own comments, and both gave the same justification: one
+ * `[Reaction]`-tagged resource ability wanted the wide window, so the window was
+ * made wide for everything. **Reported from playtesting on `[Equip]`** (818.1
+ * makes it an Activated Ability, and no Equip in this pool prints a speed
+ * keyword under 818.1.c.5): *"you shouldn't be able to equip during a showdown
+ * and not on your turn."*
+ */
+export function mayActivateAbilityNow(state: GameState, playerIndex: 0 | 1, tier: TimingTier): boolean {
+  if (playerIndex !== actingPlayerIndex(state)) return false;
+  return tierAllowsState(state, tier);
 }
 
 /**

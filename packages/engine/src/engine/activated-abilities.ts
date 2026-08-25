@@ -2,6 +2,7 @@ import type { GameState, PlayerState } from "../model/game-state.js";
 import { domainActivatedAbilities, mergeRegistries } from "./effects/index.js";
 import type { CardInstance, GearInstance, LegendInstance, UnitInstance } from "../model/card.js";
 import type { Domain } from "../model/domain.js";
+import type { TimingTier } from "./timing.js";
 import { GOLD_TOKEN_DEF_ID, MECH_TOKEN, SAND_SOLDIER_TOKEN, placeToken } from "./token.js";
 import type { EnergyDiscountRule } from "../model/card-definition.js";
 import { DOMINUS_READY, VANGUARD_ARMORY_TOKENS } from "./constants.js";
@@ -2725,9 +2726,41 @@ export function canPayActivationCost(
   // 416.3 — a permanent that is not Empowered cannot pay a disempower, so the
   // ability is not offered at all rather than offered and refused.
   if (cost.disempowerSelf === true && !isEmpowered(state, card.instanceId)) return false;
-  // `killSelf` needs no check here: the source was found in play by
-  // resolveActivation before this was called, and unlike an exhaust there is no
-  // second state it could be in — a Forge that has paid is gone, not spent.
+  /**
+   * **`killSelf` needs the source to be a GEAR, because that is what paying it
+   * looks for** — `payActivationCost` finds the instance in `activeGear` and
+   * returns undefined otherwise. Both abilities carrying this cost are `kind:
+   * "Gear"` (the Gold token and SFD-134 Zero Drive), so for every ordinary
+   * activation the two agree and this line is never the one that refuses.
+   *
+   * **OGN-111 Heimerdinger - Inventor is where they came apart.** He "has all
+   * [Exhaust] abilities of all friendly legends, units, and gear", and
+   * `abilitiesAvailableTo` hands him every friendly permanent's registered
+   * ability with HIMSELF as the source. Borrow the Gold token's "Kill this,
+   * [Exhaust]" and the cost is asked of a Unit: the enumerator offered it, the
+   * payer could not find him in `activeGear`, and `execute-activate-ability`
+   * THREW — "Heimerdinger - Inventor's activation cost cannot be paid". The AI
+   * applies enumerated actions straight to the executor, so it crashed the run
+   * rather than failing a validation.
+   *
+   * The note this replaced said the check was unnecessary because "the source was
+   * found in play by resolveActivation before this was called". That is true and
+   * it is not the question — being in play is not being in `activeGear`.
+   *
+   * **Latent since Heimerdinger and the Gold token first coexisted, and surfaced
+   * on 2026-08-24 by the ability-timing gate**, which changed nothing about this
+   * path: 310.1.a narrowed which actions the AI is offered in Showdowns, the
+   * trajectories moved, and `battlefield-reach`'s fixed seeds reached a board
+   * where Heimerdinger and a Gold token stood together for the first time.
+   *
+   * **This closes the crash, not the card question.** Whether "all [Exhaust]
+   * abilities" should reach a "Kill this, [Exhaust]" cost at all, and whether a
+   * borrowed "kill this" should kill the BORROWER, are both open and recorded in
+   * docs/rules-conformance.md. Refusing the unpayable activation is the answer
+   * that needs no ruling: 416.3 — "a cost that cannot be completed is not one you
+   * may choose to pay".
+   */
+  if (cost.killSelf && !state.players[playerIndex].activeGear.some((g) => g.instanceId === card.instanceId)) return false;
   // The Energy half is a payment, so affordability is "could a payment be
   // computed", which is exactly what the enumerator will do — asked through the
   // same function so the two cannot disagree about what is affordable.
@@ -2977,6 +3010,129 @@ function payActivationEnergy(
     channeled: actor.channeled.map((r) => (spend.has(r.id) ? { ...r, state: "Exhausted" as const } : r)),
   };
   return { ...state, players };
+}
+
+/**
+ * The tier an activated ability is timed at — DEFAULT unless the ability itself
+ * prints `[Action]` or `[Reaction]`.
+ *
+ * **THIRTY-NINE of the 184 registered abilities, spread over all five sets.** The
+ * other 145 are Default, which is why these are two sets rather than a field on
+ * every definition.
+ *
+ * # There are TWO printed forms, and reading only the documented one loses 19
+ *
+ * 806.1.d says Action "is formatted as `[Action]` on spells, or `[Action][>]` on
+ * abilities", and UNL/VEN print exactly that. **OGN, OGS and SFD do not.** They
+ * put the keyword after the cost instead — Seal of Rage is "`[Exhaust]:
+ * [Reaction] — [Add] [Fury]`", Azir - Ascendant is "`[Calm]: [Action] — Choose a
+ * unit you control`". A scan for `[Action][>]`/`[Reaction][>]` finds 20 of the 39
+ * and silently drops every rune Seal, both banking Legends and Ornn.
+ *
+ * **And the em-dash that separates them is MOJIBAKED in the older data** —
+ * `ogn.json` carries U+00E2 U+0080 U+0094 (an em-dash's UTF-8 bytes read as
+ * Latin-1) on 102 lines and `ogs.json` on 3, while sfd/unl/ven carry a clean
+ * U+2014. A predicate that matches only the real dash drops all ten OGN/OGS
+ * entries and keeps the SFD ones, which looks like a set-shaped finding rather
+ * than an encoding bug. `ability-timing.test.ts` matches both.
+ *
+ * # Why a table rather than a field on `ActivatedAbilityDefinition`
+ *
+ * The tier is a fact about the PRINTED TEXT, and `ability-timing.test.ts` asserts
+ * exactly that — a bijection between these two sets and what the pool prints, in
+ * both directions, tolerating both forms and both encodings. A field spread over
+ * ten domain files would make the same assertion against 39 places instead of 2.
+ * A new card printing a speed keyword and missing from here fails that test by
+ * name.
+ *
+ * The tier is per ABILITY, not per card: the loader's card-level `isReaction`
+ * answers when the CARD may be PLAYED. UNL-185 Pyke - Bloodharbor Ripper prints
+ * the string "[Reaction][>]" and his own ability is Default — it is his token's.
+ *
+ * Asked by `legal-actions` and `validate-activate-ability` alike, so a gated
+ * ability cannot be offered and then refused.
+ */
+/**
+ * **THREE cards print a speed-tagged ability and are deliberately NOT here** —
+ * VEN-075 Platewyrm Egg, VEN-139 and VEN-189 Akali - Rogue Assassin. Each also
+ * has an `[Empower]` cost, and `empowerAbilities()` registers that under the
+ * card's own defId, so the ability reachable at `VEN-075` is the Empower one:
+ * `{ energy: 1, exhaust: true }`, which prints no speed keyword and is Default.
+ *
+ * Tagging them by scanning the whole card text would have timed the EMPOWER at
+ * the other ability's speed — letting Akali be Empowered inside a Showdown, and
+ * on the strength of a keyword printed on a different line. `mergeRegistries`
+ * throws on a duplicate key, so there is no second entry hiding behind these:
+ * the printed `[Action][>]`/`[Reaction][>]` half of all three is genuinely
+ * unregistered, which is a coverage gap rather than a timing one and is recorded
+ * in docs/rules-conformance.md. `ability-timing.test.ts` names all three and
+ * fails if a FOURTH appears.
+ */
+const ACTION_SPEED_ABILITIES: ReadonlySet<string> = new Set([
+  "OGN-113", // Malzahar - Fanatic
+  "SFD-050", // Azir - Ascendant
+  "SFD-082", // Ezreal - Dashing
+  "UNL-045", // Forgotten Signpost
+  "UNL-161", // Divining Shells
+  "UNL-194", // Shadow
+  "VEN-112", // Zed, Without a Sound
+  "VEN-143", // Zed - Master of Shadows
+  "VEN-147", // Shen - Eye of Twilight
+  "VEN-155", // Yordle, Kennen - Heart of the Tempest
+  "VEN-191", // Zed - Master of Shadows (Overnumbered)
+  "VEN-193", // Shen - Eye of Twilight (Overnumbered)
+  "VEN-197", // Yordle, Kennen - Heart of the Tempest (Overnumbered)
+]);
+
+/**
+ * **`[Reaction][>]` — 813.1.c.2**: "This can be activated during Closed States on
+ * any player's turn", plus everything Action grants (813.1.b).
+ *
+ * Twenty-three of them, and **fourteen are the resource-bankers** — the six rune
+ * Seals, Energy Conduit, Ancient Henge, Hextech Anomaly and the five Legends who
+ * add a restricted pool. That family is what `validate-activate-ability` used to
+ * describe when it justified applying NO timing check at all: "a [Reaction]-tagged
+ * ability meant to be usable essentially any time during the Action phase to bank
+ * a resource for a later Spell". The family is real and large; the conclusion was
+ * that all 184 abilities should share its window.
+ */
+const REACTION_SPEED_ABILITIES: ReadonlySet<string> = new Set([
+  "OGN-040", // Seal of Rage
+  "OGN-081", // Seal of Focus
+  "OGN-098", // Energy Conduit
+  "OGN-120", // Seal of Insight
+  "OGN-163", // Seal of Strength
+  "OGN-204", // Seal of Discord
+  "OGN-245", // Seal of Unity
+  "OGN-247", // Kai'Sa - Daughter of the Void
+  "OGN-253", // Darius - Hand of Noxus
+  "OGS-014", // Lux - Crownguard
+  "SFD-083", // Hextech Anomaly
+  "SFD-117", // Ancient Henge
+  "SFD-189", // Ornn - Fire Below the Mountain
+  "SFD-199", // Ezreal - Prodigal Explorer
+  "UNL-049", // Honeyfruit
+  "UNL-093", // Dragonsoul Sage
+  "UNL-197", // Diana - Scorn of the Moon
+  "UNL-234", // Diana - Scorn of the Moon (Overnumbered)
+  "UNL-234*", // Diana - Scorn of the Moon (Signature)
+  "VEN-141", // Renekton - Butcher of the Sands
+  "VEN-190", // Renekton - Butcher of the Sands (Overnumbered)
+  "VEN-sp6", // Lux, Crownguard
+  // **The Gold gear token, which has no card entry of its own.** Its ability is
+  // printed only in its PARENTS' reminder text — UNL-018 Yeti Brawler, UNL-073
+  // Deadly Flourish and UNL-185 Pyke - Bloodharbor Ripper each say it has
+  // "[Reaction][>] Kill this, [Exhaust]: [Add] [rainbow]". That reminder is also
+  // why the printed-text check in `ability-timing.test.ts` strips parentheticals:
+  // without that, Pyke reads as Reaction-speed himself, and his own ability is a
+  // plain default-speed exhaust.
+  GOLD_TOKEN_DEF_ID,
+]);
+
+export function abilityTimingTier(abilityDefId: string): TimingTier {
+  if (REACTION_SPEED_ABILITIES.has(abilityDefId)) return "Reaction";
+  if (ACTION_SPEED_ABILITIES.has(abilityDefId)) return "Action";
+  return "Default";
 }
 
 /** Does this ability only bank a resource? See `banksResource` — the AI skips

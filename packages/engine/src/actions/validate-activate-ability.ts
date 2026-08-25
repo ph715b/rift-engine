@@ -10,6 +10,7 @@ import {
   killableFriendlyPermanents,
   resolveActivation,
   resolveMode,
+  abilityTimingTier,
 } from "../engine/activated-abilities.js";
 import { payEnergyFromPool, payPowerFromChanneled } from "../engine/effect-helpers.js";
 import { energyAfterFloat } from "../engine/rune-payment.js";
@@ -25,16 +26,29 @@ import {
   activatableGearTargets,
 } from "../engine/target-lookup.js";
 import { attachableEquipment, equipmentPairedWith } from "../engine/equipment.js";
+import { actingPlayerIndex, mayActivateAbilityNow } from "../engine/timing.js";
 import { fail, ok, type ValidationResult } from "./validation-result.js";
 
 /**
  * Validates an ActivateAbility action.
  *
- * Mirrors validateFloatRune's own permissiveness (both mirror a
- * [Reaction]-tagged ability meant to be usable essentially any time during the
- * Action phase to bank a resource for a later Spell): no
- * turnState/chainOpen/whose-priority-it-is check, just phase + ownership + the
- * permanent being Ready and actually having an ability.
+ * # Timing is checked here, per ABILITY — it did not used to be
+ *
+ * This file used to record a standing permissiveness: "Mirrors validateFloatRune's
+ * own permissiveness (both mirror a [Reaction]-tagged ability meant to be usable
+ * essentially any time during the Action phase to bank a resource for a later
+ * Spell): no turnState/chainOpen/whose-priority-it-is check". That generalised
+ * from ONE `[Reaction][>]` resource ability to all 184 registered ones, and
+ * `activated-abilities.ts` drew the conclusion out loud beside its own: "every
+ * ability in the pool is already reaction-speed. That is wider than the rules."
+ *
+ * It is: **310.1.a** times an ability with no printed speed keyword to "a
+ * Neutral Open state" on its controller's turn only. `mayActivateAbilityNow`
+ * holds the rule and the citations; the two widenings ride the ability's own
+ * `timing` field. Reported from playtesting on `[Equip]` (818.1).
+ *
+ * The float-rune half of that comparison is untouched and still correct —
+ * **165**'s rune pool is not an Activated Ability and 381 does not reach it.
  *
  * The registry (engine/activated-abilities.ts) replaced the hardcoded
  * single-card set that used to live here; `findActivatable` looks across base,
@@ -56,6 +70,18 @@ export function validateActivateAbility(state: GameState, action: ActivateAbilit
     return fail(`No permanent with id ${action.permanentInstanceId} controlled by player ${action.playerIndex} has that activated ability`);
   }
   const { card, abilityDefId } = found;
+
+  // **The timing gate, mirroring `legal-actions`' exactly.** Placed here rather
+  // than at the top because it is asked PER ABILITY — `abilityDefId` does not
+  // exist until `resolveActivation` has run, and Heimerdinger can name someone
+  // else's ability, whose tier is the one that governs.
+  if (!mayActivateAbilityNow(state, action.playerIndex, abilityTimingTier(abilityDefId))) {
+    const tier = abilityTimingTier(abilityDefId);
+    return fail(
+      `${card.name}'s ability is timed ${tier === "Default" ? "at default speed" : `[${tier}]`} and cannot be activated right now` +
+        ` (turn state: ${state.turnState}, chain ${state.chainOpen ? "open" : "closed"}, acting player: ${actingPlayerIndex(state)})`,
+    );
+  }
 
   // **The mode is resolved BEFORE the cost, because for Jax - Grandmaster At Arms
   // the mode IS the cost** — his detached-attach costs [1] and his re-attach is

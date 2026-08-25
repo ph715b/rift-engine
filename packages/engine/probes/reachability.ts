@@ -777,6 +777,29 @@ const GAMES = Number(process.env.GAMES ?? 500);
 // and 186, both repeating. It is an ACTION-SPACE change, the shape `walkout`'s
 // note already describes, not a card regression. See CLAUDE.md for the two cards
 // named by diffing `neverExercised`.
+//
+// **HELD at 796 AGAIN on 2026-08-24, and the headroom is now ZERO: observed is
+// 796 exactly.** Same reasoning as the 2026-08-20 hold above, and the same kind
+// of cause — the ability-timing gate (310.1.a), which stops a Default-speed
+// activated ability being used in a Showdown, on the opponent's turn, or onto a
+// chain. Union 800 -> 796, repeating across two independent runs of the gated
+// build; per set OGN 228, OGS 21, SFD 187, UNL 204, VEN 156.
+//
+// Diagnosed BY NAME off `neverExercised`, not off the total: six cards left and
+// two arrived. Four of the six are Default-speed abilities whose window really
+// did narrow — UNL-185 Pyke - Bloodharbor Ripper in all three printings (a
+// Legend that is never offerable as a card, so its ability is the ONLY way to
+// exercise it) and VEN-087 Hextech Disc. The other two (VEN-066 Temporal Breach,
+// VEN-191 Zed - Master of Shadows (Overnumbered)) and both arrivals (SFD-139
+// Edge of Night, VEN-126 Ki Barrier) are trajectory: VEN-191 is `[Action]`-timed
+// and kept its window, and VEN-066/VEN-126 have no activated ability at all.
+//
+// **A red here is now as likely to be noise as regression.** CLAUDE.md's note
+// that this pin should sit ~4 BELOW observed exists because the probe reshuffles
+// per run; that margin is spent. Whoever hits a red should diff `neverExercised`
+// against this list BEFORE treating it as a regression — and lowering the floor
+// to buy the margin back is a call for the project owner, not for the session
+// that happens to hit it, precisely because of the sentence above.
 const PINNED_UNION = 796;
 const PINNED_AT_GAMES = 500;
 
