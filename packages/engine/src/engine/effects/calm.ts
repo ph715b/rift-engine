@@ -4159,7 +4159,9 @@ export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {
     // the turn it is played, which is the whole of its printed drawback. Pinned by
     // a test that asserts the wrong answer, so adding the id fails loudly.
     //
-    // `[Reaction]` needs nothing here, and the reminder "(Abilities that add
+    // `[Reaction]` is carried by `REACTION_SPEED_ABILITIES` in
+    // `activated-abilities.ts`, which this card is in — it stopped being a no-op
+    // when 310.1.a's timing gate landed. The reminder "(Abilities that add
     // resources can't be reacted to.)" needs nothing either — Dragonsoul Sage's
     // entry in `activated-abilities.ts` records why both are somebody else's
     // business, and the second is the standing chain divergence rather than a new

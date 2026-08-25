@@ -296,6 +296,26 @@ export type TargetingSpec =
       slotScopes?: readonly [TargetScope, TargetScope];
       sameBattlefield?: true;
       /**
+       * The two chosen units must be at DIFFERENT locations — UNL-083 Smoke and
+       * Mirrors' "Choose a unit you control and another unit you control **at a
+       * different location**."
+       *
+       * The inverse of `sameBattlefield` above and a property of the SPEC for the
+       * same reason: by the time a resolver runs the choice has been made and paid
+       * for, so a resolver that refused would leave the card spent and doing
+       * nothing. That is exactly what this card did — the swap silently no-opped on
+       * a same-location pair and the "Draw 1" still happened, making it a 2-Energy
+       * unconditional cantrip. **355** makes an unmet targeting restriction an
+       * invalid choice, so the pair must never be offered at all.
+       *
+       * **"Location", not "battlefield"** (198.1: "Locations include the
+       * Battlefields and the Bases"), so two units in the SAME base are not a legal
+       * pair while one in base and one at a battlefield are. `sameBattlefield`
+       * cannot simply be negated to get this: it implies both targets are AT a
+       * battlefield, and this one does not.
+       */
+      differentLocation?: true;
+      /**
        * The SECOND target must have strictly LESS Might than the first — Public
        * Execution's "choose a friendly unit. Kill an enemy unit with less Might
        * than it."

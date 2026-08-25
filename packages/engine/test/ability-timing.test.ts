@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { legalActions } from "../src/engine/legal-actions.js";
 import { validateActivateAbility } from "../src/actions/validate-activate-ability.js";
-import { abilityTimingTier, activatedAbilityDefIds } from "../src/engine/activated-abilities.js";
+import { abilitiesAvailableTo, abilityTimingTier, activatedAbilityDefIds } from "../src/engine/activated-abilities.js";
 import { GOLD_TOKEN_DEF_ID } from "../src/engine/token.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { makeState, makeUnit, realGearInstance, realUnitInstance } from "./fixtures.js";
@@ -106,10 +106,14 @@ describe("the printed tier and the table agree — in BOTH directions", () => {
    * ability, and taking it at face value would have let Akali be Empowered inside
    * a Showdown on the strength of a keyword printed on a different line.
    *
-   * `mergeRegistries` throws on a duplicate key, so nothing is hiding behind
-   * these: the printed speed-tagged half of all three is genuinely unregistered.
-   * That is a COVERAGE gap, recorded in docs/rules-conformance.md, and it is why
-   * this list is asserted by name below rather than filtered away quietly.
+   * `mergeRegistries` throws on a duplicate key, so for a while the printed
+   * speed-tagged half of all three was genuinely unregistered — a coverage gap
+   * that `isCardImplemented` could not see, because it asks whether an entry
+   * exists and one did. **Closed on 2026-08-25** by giving each printed ability a
+   * SUFFIXED key (`VEN-075-add`, `VEN-139-recall`), the shape Jayce's two READY
+   * abilities already used; `ability-timing-abilities.test.ts` covers what they
+   * do. The bare defIds still resolve to `[Empower]`, so this list stays — it is
+   * what keeps the text scan from tagging the wrong ability.
    */
   const EMPOWER_OWNS_THE_DEFID = ["VEN-075", "VEN-139", "VEN-189"];
 
@@ -166,25 +170,42 @@ describe("the printed tier and the table agree — in BOTH directions", () => {
     expect(wrong, "the table claims a speed keyword the card does not print").toEqual([]);
   });
 
-  it("the Gold token is Reaction, and it is the only tagged ability with no card", () => {
-    // It has no card entry — its ability is printed only in its parents' reminder
-    // text, which the parenthetical strip above deliberately discards. So it can
-    // only be asserted directly.
+  it("the three tagged abilities with no card of their own are the expected three", () => {
+    // The Gold token has no card entry at all — its ability is printed only in its
+    // parents' reminder text, which the parenthetical strip above discards.
     expect(abilityTimingTier(GOLD_TOKEN_DEF_ID)).toBe("Reaction");
+    // The other two are SUFFIXED keys, and the suffix is the whole point: their
+    // cards' bare defIds reach a generated `[Empower]` instead, so the printed
+    // keyword has to be carried by the key that reaches the printed ability.
+    expect(abilityTimingTier("VEN-075-add"), "Platewyrm Egg's [Reaction][>] lost its tier").toBe("Reaction");
+    expect(abilityTimingTier("VEN-139-recall"), "Akali's [Action][>] lost its tier").toBe("Action");
 
+    const known = [GOLD_TOKEN_DEF_ID, "VEN-075-add", "VEN-139-recall"];
     const orphansTagged = activatedAbilityDefIds()
       .filter((id) => abilityTimingTier(id) !== "Default")
       .filter((id) => !registry.all().some((d) => d.id === id))
-      .filter((id) => id !== GOLD_TOKEN_DEF_ID);
+      .filter((id) => !known.includes(id));
     expect(orphansTagged, "a card-less ability was tagged without a note saying why").toEqual([]);
+  });
+
+  it("Akali's ONE registration serves both her printings", () => {
+    // `printingAliases()` expands only keys that are exactly an aliased defId, so
+    // `VEN-139-recall` is not derived for VEN-189 the way a bare defId would be.
+    // The grant site pushes the CANONICAL key instead — and without that, the
+    // Overnumbered printing keeps the silent half this change exists to close.
+    const forPrinting = (defId: string) =>
+      abilitiesAvailableTo(makeState({ phase: "Action" }), 0, { defId }).map((a) => a.abilityDefId);
+
+    expect(forPrinting("VEN-139"), "the plain printing lost her recall").toContain("VEN-139-recall");
+    expect(forPrinting("VEN-189"), "the Overnumbered printing is still silent").toContain("VEN-139-recall");
   });
 
   it("the great majority are Default — the tables are the exception, not the rule", () => {
     const tiers = activatedAbilityDefIds().map(abilityTimingTier);
     expect(tiers.filter((t) => t === "Default").length).toBe(148);
-    expect(tiers.filter((t) => t === "Action").length).toBe(13);
-    // 22 cards plus the Gold token, which has no card entry of its own.
-    expect(tiers.filter((t) => t === "Reaction").length).toBe(23);
+    expect(tiers.filter((t) => t === "Action").length).toBe(14);
+    // 22 cards, the Gold token, and Platewyrm Egg's suffixed key.
+    expect(tiers.filter((t) => t === "Reaction").length).toBe(24);
   });
 });
 

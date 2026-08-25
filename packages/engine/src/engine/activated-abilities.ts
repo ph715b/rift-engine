@@ -579,6 +579,45 @@ const DOMINUS_READY_POWER = 2;
 const JAYCE_READY = "VEN-149-ready";
 const JAYCE_READY_EMPOWERED = "VEN-149-ready-empowered";
 
+/**
+ * **Two more cards whose own defId is taken by their generated `[Empower]`** —
+ * the same collision Jayce's two keys above solve, found on 2026-08-25 by
+ * `ability-timing.test.ts`'s bijection check rather than by any coverage gate.
+ *
+ * `empowerAbilities()` keys the Empower ability by the CARD'S defId, and
+ * `mergeRegistries` throws on a duplicate — so a card printing an `[Empower]`
+ * cost AND an ordinary activated ability could register only one of the two, and
+ * the Empower synthesis is the one that won. `isCardImplemented` asks whether an
+ * entry exists and one did, so all three reported green while doing half of what
+ * they print: the silently-inert-printing class.
+ *
+ * **Three cards are affected, and Jayce above is a FOURTH instance of the same
+ * collision** — his was found and solved earlier, by other means. The three here
+ * were found because their second ability prints a SPEED keyword, which is what
+ * made the bijection check notice them; Jayce's does not, so nothing would have.
+ * **That is the limit of the instrument, and it is worth knowing**: a card with an
+ * `[Empower]` cost and a plain second ability is invisible to every check in the
+ * repo, exactly as these three were until 2026-08-25.
+ *
+ * `ability-timing.test.ts` asserts the speed-keyword set is these three and fails
+ * if a fourth of THAT shape arrives.
+ *
+ * Akali is registered ONCE, under her canonical id. `printingAliases()` expands
+ * only keys that are exactly an aliased defId, so `VEN-189-recall` would not be
+ * derived from `VEN-139-recall` — `abilitiesAvailableTo` therefore pushes the
+ * CANONICAL key, which is what makes one entry serve both printings.
+ */
+const PLATEWYRM_EGG = "VEN-075";
+const PLATEWYRM_ADD = "VEN-075-add";
+const AKALI_ROGUE = "VEN-139";
+const AKALI_RECALL = "VEN-139-recall";
+/** The `NAMED_UNIT_NARROWINGS` row carrying "a friendly unit IN A SHOWDOWN" —
+ *  see target-lookup.ts for why that is a row rather than a spec field. */
+const AKALI_IN_SHOWDOWN = "VEN-139-showdown";
+/** "[Add] 1 Energy. If this is [Empowered], [Add] 2 Energy instead." */
+const PLATEWYRM_ENERGY = 1;
+const PLATEWYRM_ENERGY_EMPOWERED = 2;
+
 const FORGE_OF_THE_FLUFT = "SFD-208";
 /** Gardens of Becoming (UNL-213) — "Units here have '[Exhaust]: Gain 1 XP.'" */
 const GARDENS_OF_BECOMING = "UNL-213";
@@ -885,6 +924,81 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
         ? state
         : readyPermanent(state, ctx.casterIndex, event.targetPermanentInstanceId),
   },
+  [PLATEWYRM_ADD]: {
+    // Platewyrm Egg (VEN-075), its SECOND ability — "[Reaction][>] [Exhaust]:
+    // [Add] [1 Energy]. If this is [Empowered], [Add] [2 Energy] instead."
+    //
+    // Its first is the generated `[Empower]` (`[1 Energy]`, `[Exhaust]`), which
+    // owns the bare `VEN-075` key — see PLATEWYRM_ADD's declaration for why this
+    // one is suffixed.
+    //
+    // **The Empowered branch reads the SOURCE, not the caster.** "If THIS is
+    // [Empowered]" is a question about the gear paying the cost, so it is asked
+    // of `sourceInstanceId` — the 4th argument — rather than of anything on the
+    // player. Read at RESOLUTION rather than captured at activation: nothing here
+    // opens a response window today, but a status stripped between the two should
+    // change the answer, and asking late is what makes that true for free.
+    //
+    // `[Reaction][>]` is carried by `REACTION_SPEED_ABILITIES`; unrestricted
+    // `floatingEnergy`, because the card prints no "use only to…" clause.
+    //
+    // `banksResource`, like Dragonsoul Sage and the Seals: it adds a resource the
+    // board evaluator cannot price, so the AI will not take it. Recorded rather
+    // than worked around, per this project's standing rule against speculative
+    // heuristics with no evaluative basis.
+    kind: "Gear",
+    cost: { exhaust: true },
+    targeting: { kind: "none" },
+    banksResource: true,
+    resolve: (state, ctx, _event, sourceInstanceId) => {
+      const amount = isEmpowered(state, sourceInstanceId) ? PLATEWYRM_ENERGY_EMPOWERED : PLATEWYRM_ENERGY;
+      const players = [...state.players] as [PlayerState, PlayerState];
+      const actor = players[ctx.casterIndex];
+      players[ctx.casterIndex] = { ...actor, floatingEnergy: actor.floatingEnergy + amount };
+      return { ...state, players };
+    },
+  },
+  [AKALI_RECALL]: {
+    // Akali - Rogue Assassin (VEN-139 / VEN-189), her SECOND ability —
+    // "[Action][>] [Exhaust]: If it's your turn, move a friendly unit in a
+    // showdown to base and if I'm [Empowered], ready it."
+    //
+    // Her first is the generated `[Empower]` (`[3 Energy][rainbow]`), which owns
+    // the bare `VEN-139` key.
+    //
+    // **"If it's your turn" is a resolution check, not a timing one, and the
+    // difference is printed.** `[Action]` (806.1.c.2) lets her be activated "during
+    // showdowns on ANY player's turn", and then the effect asks whose turn it is.
+    // So activating her in the opponent's showdown is legal and does nothing —
+    // which reads like a bug and is the card. Written as a guard here rather than
+    // as a narrower tier, because narrowing the tier would ALSO stop her being
+    // activated, and 806 says she may be.
+    //
+    // The target is "a friendly unit in a SHOWDOWN", which is a location
+    // condition no `TargetingSpec` axis expresses — so it is a row in
+    // `NAMED_UNIT_NARROWINGS`, the trade that table exists for. It also means she
+    // is unofferable with no showdown open, since a unit-targeting ability with
+    // no legal target is never enumerated.
+    //
+    // "READY IT", not "ready me": the subject is the unit that just moved, and the
+    // ready happens AFTER the move, in the printed order. `recallUnitToBase`
+    // rather than the MoveUnit executor, exactly as Ezreal - Dashing's own move
+    // does — 414.3.a puts the exhaust on the Standard Move ACTION and this is not
+    // one.
+    kind: "Legend",
+    cost: { exhaust: true },
+    targeting: { kind: "unit", owner: "friendly", scope: "battlefield", narrowing: AKALI_IN_SHOWDOWN },
+    resolve: (state, ctx, event, sourceInstanceId) => {
+      if (ctx.casterIndex !== state.activePlayerIndex) return state;
+      const target = event.targetUnitInstanceId;
+      if (target === undefined) return state;
+      const moved = recallUnitToBase(state, target);
+      // Asked of the state BEFORE the move as well as after — `recallUnitToBase`
+      // cannot change a Legend's Empowered status, so the two agree; asked here
+      // because the printed condition is about Akali at resolution.
+      return isEmpowered(moved, sourceInstanceId) ? readyUnit(moved, target) : moved;
+    },
+  },
   [JAYCE_READY_EMPOWERED]: {
     // "[Empowered][>] [1], [Exhaust]: Ready 2 gear." Offered only while he holds
     // the status (828.1.c) — enforced by `abilitiesAvailableTo`, not here.
@@ -1043,8 +1157,11 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
     // MoveUnit executor, exactly as Yasuo - Unforgiven's own move does — 414.3.a
     // puts the exhaust on the Standard Move ACTION, and this is not one.
     //
-    // `[Action]` needs nothing: `validate-activate-ability` applies no timing
-    // check to any activation, a standing permissiveness recorded in that file.
+    // **`[Action]` is carried by `ACTION_SPEED_ABILITIES`**, which this card is in.
+    // This used to read "needs nothing: `validate-activate-ability` applies no
+    // timing check to any activation, a standing permissiveness recorded in that
+    // file" — true when written, and it meant the keyword was a no-op rather than
+    // a permission. 310.1.a's gate made the tier real on 2026-08-24.
     kind: "Unit",
     cost: { power: { domain: "Mind", count: 1 } },
     targeting: { kind: "none" },
@@ -1391,9 +1508,11 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
     // it. Recorded rather than worked around, per this project's standing rule
     // against speculative heuristics with no evaluative basis.
     //
-    // **The `[Reaction]` needs nothing here.** It is a TIMING permission on the
-    // ability, and `card-loader` already sets `isReaction` from the printed
-    // token; timing.ts enforces it. The reminder text "(Abilities that add
+    // **The `[Reaction]` is carried by `REACTION_SPEED_ABILITIES`**, which this
+    // card is in. It used to say `card-loader`'s `isReaction` covered it — but
+    // that flag answers when the CARD may be PLAYED, and this keyword is printed
+    // on the ABILITY (813.1.d's `[Reaction][>]`). The two are different questions
+    // and only the second one times an activation. The reminder text "(Abilities that add
     // resources can't be reacted to.)" is likewise not this table's business —
     // it is a restriction on the OPPONENT responding, which this engine cannot
     // express at all because no activation opens a response window. That is the
@@ -1762,10 +1881,12 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
     // different half of the game and no two can apply to one payment, which is
     // why they are four fields rather than one tagged pool.
     //
-    // **`[Reaction][>]` needs nothing.** `validate-activate-ability` applies no
-    // timing check to any activation — a standing permissiveness that file
-    // records — so every ability in the pool is already reaction-speed. That is
-    // wider than the rules for the OTHER abilities and exactly right for this one.
+    // **`[Reaction][>]` is carried by `REACTION_SPEED_ABILITIES`**, which this
+    // card is in. It used to read "needs nothing … so every ability in the pool is
+    // already reaction-speed. That is wider than the rules for the OTHER
+    // abilities and exactly right for this one" — which diagnosed the problem
+    // exactly and left it standing. 310.1.a's gate closed it on 2026-08-24, and
+    // this card keeps the wide window it actually prints.
     //
     // **The "or activated abilities of units" half is NOT implemented**, and is
     // recorded in docs/rules-conformance.md: activation costs are paid by
@@ -2025,9 +2146,11 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
     // The Energy is UNRESTRICTED (unlike Lux - Crownguard's spells-only pool), so
     // it lands in `floatingEnergy` — the fungible pool every cost drains first.
     //
-    // [Reaction] needs nothing here: activateAbilityCandidates is already offered
-    // in every timing branch (legal-actions.ts), which is more permissive than
-    // this keyword requires rather than less.
+    // `[Reaction]` is carried by `REACTION_SPEED_ABILITIES`, which this card is
+    // in. It used to read "needs nothing here: activateAbilityCandidates is
+    // already offered in every timing branch (legal-actions.ts), which is more
+    // permissive than this keyword requires rather than less" — the permissiveness
+    // was real and is gone (310.1.a), so the tag is now what grants the window.
     //
     // banksResource, like Lux - Crownguard: the AI's evaluate() scores board
     // state, so an ability that only stores Energy would tie with Pass and be
@@ -2727,40 +2850,42 @@ export function canPayActivationCost(
   // ability is not offered at all rather than offered and refused.
   if (cost.disempowerSelf === true && !isEmpowered(state, card.instanceId)) return false;
   /**
-   * **`killSelf` needs the source to be a GEAR, because that is what paying it
-   * looks for** — `payActivationCost` finds the instance in `activeGear` and
-   * returns undefined otherwise. Both abilities carrying this cost are `kind:
-   * "Gear"` (the Gold token and SFD-134 Zero Drive), so for every ordinary
-   * activation the two agree and this line is never the one that refuses.
+   * **`killSelf` needs the source to be a permanent that can actually die** — a
+   * gear in `activeGear`, or a unit on the board. Asked here because it is asked
+   * by `payActivationCost`, and the two must agree: **416.3**, "a cost that
+   * cannot be completed is not one you may choose to pay".
    *
-   * **OGN-111 Heimerdinger - Inventor is where they came apart.** He "has all
-   * [Exhaust] abilities of all friendly legends, units, and gear", and
-   * `abilitiesAvailableTo` hands him every friendly permanent's registered
-   * ability with HIMSELF as the source. Borrow the Gold token's "Kill this,
-   * [Exhaust]" and the cost is asked of a Unit: the enumerator offered it, the
-   * payer could not find him in `activeGear`, and `execute-activate-ability`
-   * THREW — "Heimerdinger - Inventor's activation cost cannot be paid". The AI
-   * applies enumerated actions straight to the executor, so it crashed the run
-   * rather than failing a validation.
+   * Both abilities carrying this cost are `kind: "Gear"` (the Gold token and
+   * SFD-134 Zero Drive), so for every ordinary activation the gear branch answers
+   * and this line never refuses. **OGN-111 Heimerdinger - Inventor is the only
+   * way a non-gear ever asks**: he "has all [Exhaust] abilities of all friendly
+   * legends, units, and gear", so he can borrow one with himself as the source.
    *
-   * The note this replaced said the check was unnecessary because "the source was
-   * found in play by resolveActivation before this was called". That is true and
-   * it is not the question — being in play is not being in `activeGear`.
+   * That used to CRASH. The payer looked only in `activeGear`, returned undefined
+   * for a Unit, and `execute-activate-ability` threw — "Heimerdinger - Inventor's
+   * activation cost cannot be paid". The AI applies enumerated actions straight to
+   * the executor, so it killed the `battlefield-reach` run rather than failing a
+   * validation. Latent since the two cards first coexisted; surfaced on 2026-08-24
+   * by the ability-timing gate, purely through trajectory.
    *
-   * **Latent since Heimerdinger and the Gold token first coexisted, and surfaced
-   * on 2026-08-24 by the ability-timing gate**, which changed nothing about this
-   * path: 310.1.a narrowed which actions the AI is offered in Showdowns, the
-   * trajectories moved, and `battlefield-reach`'s fixed seeds reached a board
-   * where Heimerdinger and a Gold token stood together for the first time.
+   * **The first fix refused it on both sides, and that was the wrong half to
+   * make agree.** It closed the crash by withholding a play the rules allow, and
+   * this project's standing ruling is that the engine is a digital version of the
+   * paper game and never withholds a legal one. The payer kills the unit instead —
+   * see its own note for 136.2.d and 395, and for why the reading is recorded in
+   * docs/rules-conformance.md rather than treated as settled.
    *
-   * **This closes the crash, not the card question.** Whether "all [Exhaust]
-   * abilities" should reach a "Kill this, [Exhaust]" cost at all, and whether a
-   * borrowed "kill this" should kill the BORROWER, are both open and recorded in
-   * docs/rules-conformance.md. Refusing the unpayable activation is the answer
-   * that needs no ruling: 416.3 — "a cost that cannot be completed is not one you
-   * may choose to pay".
+   * The note this replaced said no check was needed at all because "the source was
+   * found in play by resolveActivation before this was called". True, and not the
+   * question: being in play is not being somewhere the payer can reach.
    */
-  if (cost.killSelf && !state.players[playerIndex].activeGear.some((g) => g.instanceId === card.instanceId)) return false;
+  if (
+    cost.killSelf &&
+    !state.players[playerIndex].activeGear.some((g) => g.instanceId === card.instanceId) &&
+    findUnitAnywhere(state, card.instanceId) === undefined
+  ) {
+    return false;
+  }
   // The Energy half is a payment, so affordability is "could a payment be
   // computed", which is exactly what the enumerator will do — asked through the
   // same function so the two cannot disagree about what is affordable.
@@ -2871,11 +2996,44 @@ export function payActivationCost(
   }
   if (cost.killSelf) {
     const gear = next.players[playerIndex].activeGear.find((g) => g.instanceId === instanceId);
-    if (!gear) return undefined;
-    // killGear, not a quiet removal: paying a cost with a permanent is still
-    // killing it, so its own "when I am killed" self-trigger must fire — the
-    // same reasoning Cruel Patron's kill-as-a-cost already follows.
-    next = killGear(next, gear, playerIndex);
+    if (gear) {
+      // killGear, not a quiet removal: paying a cost with a permanent is still
+      // killing it, so its own "when I am killed" self-trigger must fire — the
+      // same reasoning Cruel Patron's kill-as-a-cost already follows.
+      next = killGear(next, gear, playerIndex);
+    } else if (findUnitAnywhere(next, instanceId)) {
+      /**
+       * **A UNIT paying a "Kill this" cost — which only happens through
+       * OGN-111 Heimerdinger - Inventor.**
+       *
+       * He "has all [Exhaust] abilities of all friendly legends, units, and
+       * gear", and both `killSelf` abilities in the pool (the Gold token's and
+       * SFD-134 Zero Drive's) print `[Exhaust]` in their cost, so he has them.
+       * "Kill THIS" then names him: **136.2.d** settles the principle for the
+       * nearest analogous case — Effect Text's "this" refers to the object that
+       * appended the ability, not to the card underneath — and **395** confirms
+       * abilities travel to another Game Object with their references intact.
+       *
+       * **This used to `return undefined`, and the enumerator did not ask.** The
+       * result was an offered-then-refused that the AI turned into a hard THROW:
+       * "Heimerdinger - Inventor's activation cost cannot be paid", which crashed
+       * `battlefield-reach` on 2026-08-24. The first fix taught the enumerator to
+       * refuse it too, which closed the crash by WITHHOLDING a play — and this
+       * project's standing ruling is that the engine is a digital version of the
+       * paper game and never withholds a legal one. So it is paid instead.
+       *
+       * Killing yourself to add one rune is a terrible play and a legal one. The
+       * ability resolves after he is gone, which needs nothing special: 383.3 and
+       * 377.3.a.1 make a chain item independent of the card that made it.
+       *
+       * **The reading is recorded in docs/rules-conformance.md so it can be
+       * overruled** — the PDF does not name Heimerdinger, and "[Exhaust] ability"
+       * is not a defined term.
+       */
+      next = destroyUnit(next, instanceId, playerIndex);
+    } else {
+      return undefined;
+    }
   }
   if (cost.disempowerSelf === true) {
     // Re-checked at PAYMENT as well as at the offer, the convention every cost
@@ -3016,9 +3174,9 @@ function payActivationEnergy(
  * The tier an activated ability is timed at — DEFAULT unless the ability itself
  * prints `[Action]` or `[Reaction]`.
  *
- * **THIRTY-NINE of the 184 registered abilities, spread over all five sets.** The
- * other 145 are Default, which is why these are two sets rather than a field on
- * every definition.
+ * **THIRTY-EIGHT of the 186 registered abilities, spread over all five sets.**
+ * The other 148 are Default, which is why these are two sets rather than a field
+ * on every definition.
  *
  * # There are TWO printed forms, and reading only the documented one loses 19
  *
@@ -3069,6 +3227,10 @@ function payActivationEnergy(
  * fails if a FOURTH appears.
  */
 const ACTION_SPEED_ABILITIES: ReadonlySet<string> = new Set([
+  // The SUFFIXED key, not the bare defId — `VEN-139`/`VEN-189` reach the
+  // generated `[Empower]`, which prints no speed keyword and is Default. One
+  // entry covers both printings because the grant site pushes the canonical key.
+  "VEN-139-recall", // Akali - Rogue Assassin, her [Action][>] recall
   "OGN-113", // Malzahar - Fanatic
   "SFD-050", // Azir - Ascendant
   "SFD-082", // Ezreal - Dashing
@@ -3097,6 +3259,9 @@ const ACTION_SPEED_ABILITIES: ReadonlySet<string> = new Set([
  * that all 184 abilities should share its window.
  */
 const REACTION_SPEED_ABILITIES: ReadonlySet<string> = new Set([
+  // Suffixed, for the reason `VEN-139-recall` above is: `VEN-075` reaches
+  // Platewyrm Egg's generated `[Empower]`.
+  "VEN-075-add", // Platewyrm Egg, its [Reaction][>] Energy
   "OGN-040", // Seal of Rage
   "OGN-081", // Seal of Focus
   "OGN-098", // Energy Conduit
@@ -3444,6 +3609,26 @@ export function abilitiesAvailableTo(
     if (state.players[playerIndex].legend.empowered === true) {
       granted.push({ abilityDefId: JAYCE_READY_EMPOWERED, definition: allActivatedAbilities()[JAYCE_READY_EMPOWERED]! });
     }
+  }
+  // Platewyrm Egg's and Akali's second abilities — the same shape as Jayce's
+  // directly above, and for the same reason: their own defIds are taken by the
+  // generated `[Empower]`, so the printed ability carries a suffixed key and is
+  // offered from here, the single answer to "what can this source activate".
+  //
+  // **Akali is matched on her CANONICAL defId**, so the one registration serves
+  // both her printings. `printingAliases()` expands only keys that are exactly an
+  // aliased defId, and `VEN-139-recall` is not one — without this, VEN-189
+  // Overnumbered would keep the silent half it has had all along, which is the
+  // exact bug being closed.
+  //
+  // Neither is gated the way Jayce's Empowered ability is: his second key is a
+  // DIFFERENT ability that exists only while Empowered (828.1.c), while these two
+  // are always present and merely read the status inside their own resolvers.
+  if (source.defId === PLATEWYRM_EGG) {
+    granted.push({ abilityDefId: PLATEWYRM_ADD, definition: allActivatedAbilities()[PLATEWYRM_ADD]! });
+  }
+  if (canonicalDefId(source.defId) === AKALI_ROGUE) {
+    granted.push({ abilityDefId: AKALI_RECALL, definition: allActivatedAbilities()[AKALI_RECALL]! });
   }
   // Dominus' "give it '[rainbow][rainbow]: Ready me'" — an ability GRANTED to
   // this unit for the turn, offered here for the reason Forge of the Fluft's

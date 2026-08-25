@@ -10,6 +10,7 @@ import {
   hasAnyLegalEffectChoice,
   scopeDescription,
   secondMightIsBelowFirst,
+  atDifferentLocations,
   shareABattlefield,
   unitListChoiceError,
   gearTargets,
@@ -450,6 +451,13 @@ function targetingRejection(
       }
     }
 
+    // Smoke and Mirrors' "at a different location" — the inverse of
+    // Facebreaker's below, and NOT its negation: `shareABattlefield` is false
+    // whenever either unit is off a battlefield, so negating it would call two
+    // units in the same BASE a legal pair. 198.1 makes a base a location.
+    if (targeting.differentLocation && filled.length === 2 && !atDifferentLocations(state, filled[0]!, filled[1]!)) {
+      return `${cardName} requires its two units at different locations`;
+    }
     // Facebreaker's "at the same battlefield" — a relation between the two
     // targets, so it cannot be checked slot by slot above. Asked through the
     // same helper legal-actions' fan-out uses, so "offered" and "legal" cannot

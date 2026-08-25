@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { submit } from "../src/engine/game-engine.js";
 import { legalActions } from "../src/engine/legal-actions.js";
+import { validatePlayCard } from "../src/actions/validate-play-card.js";
 import { isCardImplemented } from "../src/engine/coverage.js";
 import { runBeginning } from "../src/engine/turn-manager.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
@@ -23,11 +24,16 @@ import { makeState, makeUnit, realUnitInstance, spellInstance } from "./fixtures
  * Each card has a NEGATIVE control that asserts its own POSITIVE control first —
  * "nothing happened" is exactly what an inert card looks like.
  *
- * Two tests are PINS on divergences named in the cards' own entries (Smoke and
- * Mirrors' missing "at a different location" targeting restriction, and the
- * from-Hidden slot exemption 811.1.d.2.a works this card by name). They assert
- * the WRONG answer on purpose, so closing the gap fails loudly rather than
- * changing behaviour nobody was watching.
+ * Two tests here used to be PINS asserting the WRONG answer on purpose — Smoke
+ * and Mirrors' missing "at a different location" targeting restriction, and the
+ * from-Hidden slot exemption 811.1.d.2.a works this card by name. **Both closed
+ * on 2026-08-25 and both were INVERTED rather than deleted**, per CLAUDE.md: the
+ * board that proved the gap is the board that proves the fix. Their docblocks
+ * still quote what they used to assert.
+ *
+ * The validator-side test beside them exists because a mutation run found that
+ * half uncovered — the enumerator never offers a bad pair, so nothing was asking
+ * whether the validator would refuse one.
  *
  * Helpers are local rather than added to fixtures.ts, which is shared and is
  * being edited by other agents in this tree.
@@ -201,15 +207,20 @@ describe("Smoke and Mirrors (UNL-083): swap two of your units' locations, draw 1
   });
 
   /**
-   * **PIN on the "at a different location" targeting restriction**, which
-   * `TargetingSpec.unitSlots` cannot express — it has `sameBattlefield` and no
-   * inverse. 355 makes a same-location pair an invalid choice and the spell
-   * uncastable with it; here it is offered, cast, and draws while moving nothing.
+   * **"At a different location" — INVERTED 2026-08-25 from a pin that asserted
+   * the wrong answer on purpose.**
    *
-   * Asserting the WRONG answer on purpose. When `differentLocation` lands in
-   * card-effects.ts / legal-actions.ts / validate-play-card.ts, this fails.
+   * It used to read *"PIN: two units at the SAME location are still offered, and
+   * cast for a bare draw"*, because `TargetingSpec.unitSlots` had
+   * `sameBattlefield` and no inverse. **355** makes a same-location pair an
+   * invalid choice and the spell uncastable with it; the engine offered it, cast
+   * it, and drew while moving nothing — a 2-Energy unconditional cantrip.
+   *
+   * `differentLocation` on the spec is what closed it. Inverted rather than
+   * deleted, per CLAUDE.md: the board that used to prove the gap is exactly the
+   * board that now proves the fix.
    */
-  it("PIN: two units at the SAME location are still offered, and cast for a bare draw", () => {
+  it("refuses two units at the SAME location outright — 355 makes the pair invalid", () => {
     const { state, spellId } = swapState();
     // Both friendlies at bf1, both Temporary — so ONLY the location rule can be
     // what stops the swap.
@@ -221,14 +232,64 @@ describe("Smoke and Mirrors (UNL-083): swap two of your units' locations, draw 1
       ],
     };
 
+    expect(swapCast(state, spellId), "a same-location pair is still castable").toBeUndefined();
+    // UNCASTABLE, not merely un-paired: `min: 2` means there is no lesser variant
+    // to fall back on, so the whole spell is off the table rather than offered as
+    // a bare draw. That distinction is the entire divergence this replaced.
+    expect(castsOf(state, spellId), "the spell was still offered in some form").toHaveLength(0);
+  });
+
+  it("the VALIDATOR refuses a same-location pair too, not just the enumerator", () => {
+    /**
+     * **The half a mutation run found uncovered.** Disabling the validator's
+     * `differentLocation` check left the whole suite green, because the enumerator
+     * never offers a bad pair and nothing else was asking.
+     *
+     * It is reachable all the same: the AI calls the executor straight off
+     * `legalActions`, and the web can submit an action built a moment ago against
+     * a board that has since moved. Here the pair is legal when the action is
+     * built and illegal by the time it is validated, which is exactly that shape —
+     * a unit walked to join the other one in the response window.
+     */
+    const { state, spellId } = swapState();
     const cast = swapCast(state, spellId);
-    expect(cast, "the same-location pair is refused now — delete this pin").toBeDefined();
+    expect(cast, "nothing to validate — the fixture offered no pair").toBeDefined();
+    expect(validatePlayCard(state, cast!), "the pair was not legal to begin with").toMatchObject({ ok: true });
 
-    const after = passUntilSettled(accept(state, cast!));
+    // Same action, board moved: the base unit is now standing at bf1 beside the
+    // other one, so the two named units share a location.
+    const joined: GameState = {
+      ...state,
+      players: state.players.map((p, idx) => (idx === 0 ? { ...p, baseUnits: [] } : p)) as GameState["players"],
+      battlefields: state.battlefields.map((bf, idx) =>
+        idx === 0
+          ? { ...bf, units: { ...bf.units, p1: [...(bf.units["p1"] ?? []), makeUnit({ instanceId: "homebody", name: "Homebody" })] } }
+          : bf,
+      ),
+    };
 
-    expect(locationOf(after, "roamer"), "a same-location pair moved something").toBe("bf1");
-    expect(locationOf(after, "homebody")).toBe("bf1");
-    expect(after.players[0]!.deck, "the draw is the only thing this play does").toHaveLength(1);
+    expect(validatePlayCard(joined, cast!), "a stale same-location pair was accepted").toMatchObject({ ok: false });
+  });
+
+  it("...and a base/battlefield pair IS still offered — the control", () => {
+    // Without this the refusal above would also pass on an implementation that
+    // had simply stopped offering the card at all.
+    const { state, spellId } = swapState();
+    expect(swapCast(state, spellId), "no legal pair survives — the flag is too strong").toBeDefined();
+  });
+
+  it("two units in the same BASE are also refused — 'location', not 'battlefield'", () => {
+    // 198.1: "Locations include the Battlefields and the Bases". `differentLocation`
+    // is deliberately NOT `!shareABattlefield`, which is false whenever either unit
+    // is off a battlefield and would call this pair legal.
+    const { state, spellId } = swapState();
+    state.battlefields[0]!.units = {};
+    state.players[0]!.baseUnits = [
+      makeUnit({ instanceId: "roamer", name: "Roamer", keywords: { Temporary: 1 } }),
+      makeUnit({ instanceId: "homebody", name: "Homebody", keywords: { Temporary: 1 } }),
+    ];
+
+    expect(castsOf(state, spellId), "two units in one base counted as different locations").toHaveLength(0);
   });
 
   /**
@@ -237,15 +298,20 @@ describe("Smoke and Mirrors (UNL-083): swap two of your units' locations, draw 1
    * it must be. The second unit chosen explicitly restricts targeting in a way
    * that makes this impossible, so it can be chosen from any location."*
    *
-   * `legal-actions` applies `atHiddenBattlefield` to BOTH `unitSlots` slots, so
-   * the second slot is confined to the hidden battlefield too — which, with a
-   * card whose two targets must be at DIFFERENT locations, leaves the from-Hidden
-   * mode able to name only pairs that cannot legally swap.
+   * **INVERTED 2026-08-25.** `legal-actions` used to apply `atHiddenBattlefield`
+   * to BOTH `unitSlots` slots, so the second was confined to the hidden
+   * battlefield too — which, on a card whose two targets must be at DIFFERENT
+   * locations, left the from-Hidden mode able to name only pairs that cannot
+   * legally swap. Once `differentLocation` refused those pairs outright the mode
+   * would have gone from inert to UNCASTABLE, so the two halves had to land
+   * together — which is what the conformance row predicted.
    *
-   * Asserting the WRONG answer on purpose, with its own positive control (the
-   * from-Hidden play IS offered, so "no base pairing" is not vacuous).
+   * The exemption is derived from the SPEC (`secondSlotEscapesHidden`), not from
+   * a list of card names: 811.1.d.2.a's *"each target is treated separately and
+   * individually"* is a per-slot rule, which is why this card could not ride
+   * Tideturner's whole-card `targetMustBeElsewhere` fix.
    */
-  it("PIN: played from Hidden, the SECOND slot is wrongly confined to the hidden battlefield", () => {
+  it("played from Hidden, the SECOND slot may be chosen from any location (811.1.d.2.a)", () => {
     const spell = spellInstance(SMOKE_AND_MIRRORS);
     const state = makeState({ phase: "Action" });
     state.turnNumber = 3;
@@ -281,9 +347,13 @@ describe("Smoke and Mirrors (UNL-083): swap two of your units' locations, draw 1
       "no from-Hidden play filled both slots",
     ).toBeGreaterThan(0);
     const named = hidden.flatMap((a) => [a.targetUnitInstanceId, a.secondTargetUnitInstanceId]);
-    expect(named, "811.1.d.2.a's second-slot exemption is implemented now — delete this pin").not.toContain(
-      "homebody",
-    );
+    expect(named, "the base unit is still unreachable — the second slot is confined").toContain("homebody");
+
+    // And the FIRST slot is still confined, which is the other half of the same
+    // sentence: "the first unit chosen CAN be chosen at the battlefield ... so it
+    // MUST be." Every offered play names a bf1 unit in slot 0.
+    const firstSlots = new Set(hidden.map((a) => a.targetUnitInstanceId));
+    expect([...firstSlots], "the first slot escaped its confinement too").not.toContain("homebody");
   });
 });
 

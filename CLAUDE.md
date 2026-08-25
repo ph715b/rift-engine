@@ -157,14 +157,16 @@ by control, exactly as above.
 **`walkout` IS deterministic — five runs, same figures — and `reachability` is
 NOT.** Do not carry an assumption from one to the other; see the pin note below.
 
-`reachability` is pinned at **796, against an observed 796** of 868 cards needing
+`reachability` is pinned at **796, against an observed 798** of 868 cards needing
 code ever exercised, at its default **500 games per mode**.
 
-**The observed figure fell 800 -> 796 on 2026-08-24 and the pin HELD, so the
-headroom described below is now ZERO.** The cause is the ability-timing gate
-(310.1.a): a Default-speed activated ability can no longer be used in a Showdown,
-on the opponent's turn, or onto a chain, and 148 of the 184 registered abilities
-are Default. Repeating across two independent runs of the gated build.
+**It fell 800 -> 796 on 2026-08-24 and recovered to 798 on 2026-08-25**, so the
+headroom is 2 rather than the ~4 the note below wants. The drop was the
+ability-timing gate (310.1.a): a Default-speed activated ability can no longer be
+used in a Showdown, on the opponent's turn, or onto a chain, and 148 of the 186
+registered abilities are Default. The recovery is the `[Empower]` key collision
+being closed — VEN-075 Platewyrm Egg and VEN-139/VEN-189 Akali each got back a
+printed ability that had never been registered, and VEN went 156 -> 158.
 
 Diagnosed BY NAME off `neverExercised`, per the rule further down: six cards left
 and two arrived. **Four of the six are the change working** — UNL-185 Pyke -
@@ -190,8 +192,9 @@ machine**, so treat any single timing as noise unless it is decomposed by
 control.
 
 **Read the PER-SET figures, not only the union.** OGN **228**, OGS **21**, SFD
-**187**, UNL **204**, VEN **156** — SFD +1, UNL -3 and VEN -2 on 2026-08-24, all
-from the ability-timing gate described above. OGN and OGS did not move. **VEN joined `COMPLETE_SETS` on 2026-08-19** —
+**187**, UNL **204**, VEN **158**. SFD +1, UNL -3 and VEN -2 on 2026-08-24 from
+the ability-timing gate; VEN back to 158 on 2026-08-25 from the `[Empower]` fix.
+OGN and OGS have not moved through either. **VEN joined `COMPLETE_SETS` on 2026-08-19** —
 all five sets are declared, and `everyUnexercisedExplained` now covers the whole
 pool.
 

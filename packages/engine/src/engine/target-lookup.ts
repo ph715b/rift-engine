@@ -250,6 +250,35 @@ export function shareABattlefield(state: GameState, firstInstanceId: string, sec
 }
 
 /**
+ * Are the two units at DIFFERENT locations — UNL-083 Smoke and Mirrors' "another
+ * unit you control **at a different location**"?
+ *
+ * Beside `shareABattlefield` and asked by both the enumerator and the validator,
+ * for the reason that one's neighbours give: a relation between the two chosen
+ * units belongs to neither slot's own filter, and the two sides disagreeing is
+ * the offered-then-refused split this repo has shipped six of.
+ *
+ * **NOT `!shareABattlefield`.** That returns true whenever either unit is not at
+ * a battlefield, so negating it would call two units standing together in the
+ * same BASE a legal pair. **198.1**: "Locations include the Battlefields and the
+ * Bases" — a base is a location, and the two bases are two different ones.
+ *
+ * A unit that has left play in the response window makes the pairing
+ * unsatisfiable rather than trivially true, exactly as `secondMightIsBelowFirst`
+ * below decides for the same situation.
+ */
+export function atDifferentLocations(state: GameState, firstInstanceId: string, secondInstanceId: string): boolean {
+  const locationOf = (instanceId: string): string | undefined => {
+    const at = findUnitAnywhere(state, instanceId);
+    if (!at) return undefined;
+    return at.zone === "base" ? `base:${at.ownerIndex}` : `bf:${at.zone.battlefieldIndex}`;
+  };
+  const first = locationOf(firstInstanceId);
+  const second = locationOf(secondInstanceId);
+  return first !== undefined && second !== undefined && first !== second;
+}
+
+/**
  * Does the SECOND unit have strictly less Might than the first — Public
  * Execution's "kill an enemy unit with less Might than it"?
  *
@@ -1076,6 +1105,27 @@ const NAMED_UNIT_NARROWINGS: Readonly<
   // Ownership is left to `owner: "friendly"` on the spec rather than re-asked
   // here — one narrowing, one job.
   "VEN-112-clone": (_state, unit) => unit.defId === SHADOW_CLONE_TOKEN_DEF_ID,
+  // Akali - Rogue Assassin (VEN-139/VEN-189) — "move A FRIENDLY UNIT IN A
+  // SHOWDOWN to base".
+  //
+  // "In a showdown" is a LOCATION condition — standing at the battlefield the
+  // open Showdown is at — and no `TargetingSpec` axis says it. `attackingOnly`
+  // is the nearest and is wrong twice over: it names the Attacker DESIGNATION,
+  // so it would exclude the defender, and 316.8.b.1's Non-Combat Showdown has no
+  // designations at all while still being a showdown.
+  //
+  // Deliberately NOT `showdownKind === "Combat"`: the card says "showdown", and
+  // a Non-Combat one is one. That is the opposite call from
+  // `currentMightContext`, which excludes it because the rule it serves is about
+  // combat ROLES — same board, different question.
+  //
+  // Ownership is left to `owner: "friendly"` on the spec — one narrowing, one
+  // job, as VEN-112's note above says.
+  "VEN-139-showdown": (state, unit) => {
+    if (state.showdownBattlefieldId === null) return false;
+    const at = findUnitOnBattlefield(state, unit.instanceId);
+    return at !== undefined && state.battlefields[at.battlefieldIndex]?.id === state.showdownBattlefieldId;
+  },
 };
 
 /** Is this unit at a Contested battlefield where the OTHER player has a unit of

@@ -1245,30 +1245,37 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // left. This engine has no simultaneous-move primitive; the same divergence
     // Card Sharp's two parked questions record for choices.
     //
-    // # "At a DIFFERENT location" is a targeting restriction this spec cannot say
+    // # "At a DIFFERENT location" — both halves CLOSED 2026-08-25
     //
-    // **DIVERGENCE, in the permissive direction.** `unitSlots` has
-    // `sameBattlefield` (Facebreaker's) and no inverse, so the enumerator and the
-    // validator both accept two units standing together. 355 makes that an invalid
-    // choice and the spell uncastable with it; here it is castable and the swap
-    // simply does nothing, while "Draw 1" still happens. The guard below is
-    // therefore a resolver check standing in for a spec flag — the shape
-    // `TargetingSpec`'s own comments warn about, taken knowingly because the
-    // alternative is an edit to card-effects.ts, legal-actions.ts and
-    // validate-play-card.ts, none of which this file owns.
+    // `differentLocation: true` on the spec above is the flag both divergences
+    // below were waiting on. The two were one edit, in one order, exactly as
+    // docs/rules-conformance.md predicted.
     //
-    // **DIVERGENCE, in the restrictive direction, and the rules work THIS CARD by
-    // name.** 811.1.d.2 confines a from-Hidden spell's targets to the battlefield
-    // it was hidden at "unless the ability explicitly restricts targeting in a way
-    // that makes this impossible", and 811.1.d.2.a's example is Smoke and Mirrors:
+    // **Was DIVERGENT, permissive.** `unitSlots` had `sameBattlefield`
+    // (Facebreaker's) and no inverse, so the enumerator and the validator both
+    // accepted two units standing together. 355 makes that an invalid choice and
+    // the spell uncastable with it; here it was castable, the swap silently did
+    // nothing and "Draw 1" still happened — a 2-Energy unconditional cantrip
+    // whenever the caster picked a same-location pair. The resolver guard below
+    // stays as a belt-and-braces no-op; the spec is what refuses the pair now.
+    //
+    // **Was DIVERGENT, restrictive, and the rules work THIS CARD by name.**
+    // 811.1.d.2 confines a from-Hidden spell's targets to the battlefield it was
+    // hidden at "unless the ability explicitly restricts targeting in a way that
+    // makes this impossible", and 811.1.d.2.a's example is Smoke and Mirrors:
     // *"the first unit chosen can be chosen at the battlefield Smoke and Mirrors
     // was played from, so it must be. The second unit chosen explicitly restricts
     // targeting in a way that makes this impossible, so it can be chosen from any
-    // location."* `legal-actions` applies `atHiddenBattlefield` to BOTH slots, so a
-    // from-Hidden play can only ever name two units standing together — which,
-    // with the divergence above, is a play that draws and moves nothing. The whole
-    // from-Hidden mode of this card is therefore inert until the second slot is
-    // exempted. Reported rather than half-written; it is the same shared edit.
+    // location."* `legal-actions` applied `atHiddenBattlefield` to BOTH slots, so
+    // a from-Hidden play could only ever name two units standing together — which
+    // the flag above now refuses outright, making the whole from-Hidden mode
+    // uncastable rather than merely inert. It exempts slot 1 instead, per slot,
+    // which is what 811.1.d.2.a's "each target is treated separately" asks for.
+    //
+    // The per-slot exemption is derived from `differentLocation` rather than from
+    // a list of card names — see `legal-actions`' `secondSlotEscapesHidden`. That
+    // is why this card could not ride Tideturner's fix: `targetMustBeElsewhere`
+    // states a whole-CARD impossibility and this one is per slot.
     //
     // # The [Temporary] gate
     //
@@ -1285,7 +1292,13 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // variants would offer the player a distinction that does not exist. That is
     // the opposite call from Convergent Mutation above, whose slot 0 is the
     // beneficiary and slot 1 only a measurement.
-    targeting: { kind: "unitSlots", slots: ["friendly", "friendly"], min: 2, scope: "anywhere" },
+    targeting: {
+      kind: "unitSlots",
+      slots: ["friendly", "friendly"],
+      min: 2,
+      scope: "anywhere",
+      differentLocation: true,
+    },
     resolve: (state, ctx, event) => {
       const first = event.targetUnitInstanceId ? findUnitAnywhere(state, event.targetUnitInstanceId) : undefined;
       const second = event.secondTargetUnitInstanceId

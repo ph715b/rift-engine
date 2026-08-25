@@ -21,6 +21,7 @@ import {
   findUnitAnywhere,
   findUnitOnBattlefield,
   secondMightIsBelowFirst,
+  atDifferentLocations,
   shareABattlefield,
   unitListCandidates,
   gearTargets,
@@ -1515,9 +1516,33 @@ export function legalActions(state: GameState): PlayerAction[] {
       //
       // Scope is asked PER SLOT: Zenith Blade's enemy target is "at a
       // battlefield" and its friendly one is not.
+      //
+      // **The from-Hidden confinement is asked PER SLOT — 811.1.d.2.a, "Each
+      // target is treated separately and individually when processing this
+      // rule" — and the rules work UNL-083 Smoke and Mirrors by name:**
+      //
+      // > "If Smoke and Mirrors is played from hidden, the first unit chosen can
+      // > be chosen at the battlefield Smoke and Mirrors was played from, so it
+      // > must be. The second unit chosen explicitly restricts targeting in a way
+      // > that makes this impossible, so it can be chosen from any location."
+      //
+      // `differentLocation` is exactly that impossibility, stated in the spec:
+      // slot 0 is confined to the hidden battlefield, so a slot-1 unit at that
+      // same battlefield can never satisfy the pairing. Derived from the spec
+      // rather than from a list of exempt card names — the same choice
+      // `atHiddenBattlefield` makes for the whole-card case via
+      // `targetMustBeElsewhere`, which cannot express a PER-SLOT impossibility
+      // and is why this card stayed open after Tideturner's fix landed.
+      //
+      // Until this, `legal-actions` confined BOTH slots, so a from-Hidden play
+      // could only name two units standing together — which `differentLocation`
+      // now refuses outright. The whole from-Hidden mode of the card was inert.
+      const secondSlotEscapesHidden = targeting.differentLocation === true;
       const forSlot = (slot: 0 | 1) =>
-        eligibleTargets(state, playerIndex, slotOwner(targeting.slots[slot]), slotScope(targeting, slot)).filter((u) =>
-          atHiddenBattlefield(state, u.instanceId, fromHiddenBattlefieldId),
+        eligibleTargets(state, playerIndex, slotOwner(targeting.slots[slot]), slotScope(targeting, slot)).filter(
+          (u) =>
+            (slot === 1 && secondSlotEscapesHidden) ||
+            atHiddenBattlefield(state, u.instanceId, fromHiddenBattlefieldId),
         );
       const firstSlot = forSlot(0);
       const secondSlot = forSlot(1);
@@ -1534,7 +1559,20 @@ export function legalActions(state: GameState): PlayerAction[] {
       // 2-Might unit, the single offered pairing was the one that increases by 0.
       // `asymmetricSlots` is how a spec says the roles coincide but the meanings
       // do not.
-      const symmetric = targeting.slots[0] === targeting.slots[1] && targeting.asymmetricSlots !== true;
+      //
+      // **And the two candidate LISTS have to be identical for that pruning to be
+      // valid**, because `j < i` compares an index into `secondSlot` against one
+      // into `firstSlot`. That was always true while both slots were filtered the
+      // same way, and stopped being true the moment a from-Hidden play confined
+      // slot 0 and exempted slot 1 (above): the pruning would then drop legal
+      // pairs whose slot-1 unit merely sits earlier in a differently-built list.
+      // Every other card is unaffected — matching roles produce identical lists,
+      // so this reduces to the old condition.
+      const slotListsMatch =
+        firstSlot.length === secondSlot.length &&
+        firstSlot.every((u, k) => u.instanceId === secondSlot[k]!.instanceId);
+      const symmetric =
+        targeting.slots[0] === targeting.slots[1] && targeting.asymmetricSlots !== true && slotListsMatch;
 
       if (targeting.min === 0) effectVariants.push({});
       if (targeting.min <= 1) {
@@ -1553,6 +1591,12 @@ export function legalActions(state: GameState): PlayerAction[] {
           if (targeting.slotsMayCoincide !== true && first.instanceId === second.instanceId) continue;
           if (symmetric && j < i) continue; // keep one ordering of each pair
           if (targeting.sameBattlefield && !shareABattlefield(state, first.instanceId, second.instanceId)) continue;
+          // Smoke and Mirrors' "at a different location" — 355 makes an unmet
+          // targeting restriction an invalid choice, so a same-location pair is
+          // never offered rather than offered-and-inert. Mirrored in
+          // `validate-play-card`, beside the `sameBattlefield` check it sits next
+          // to there too.
+          if (targeting.differentLocation && !atDifferentLocations(state, first.instanceId, second.instanceId)) continue;
           // Public Execution — "an enemy unit with LESS Might than it". Filtered
           // on the OFFER for the reason every other pair relation here is: a
           // pairing refused at resolution is one the caster already paid for.
