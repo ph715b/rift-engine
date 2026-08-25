@@ -382,7 +382,17 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
   // runes come out right and the FLOAT comes out wrong — which is the entire
   // failure mode of this block, now recorded four times.
   const priceZeroed = ignoresBaseCost || costIgnored;
-  const additional = priceZeroed ? { energy: 0, power: 0, rainbow: 0 } : optionalAdditionalCostsFor(state, action, card);
+  // **`costIgnored` alone zeroes the ADDITIONAL cost, not `priceZeroed`.**
+  // 811.1.b waives a hidden play's BASE cost (204.1) and an Additional Cost is
+  // by 204.2 "in addition to the base cost", so a from-hidden play still owes
+  // one it chose to pay. This line used to read `priceZeroed`, and the comment
+  // above `optionalAdditionalCostsFor` still recorded the old reading in as
+  // many words — "a from-hidden play costs nothing, additional costs included".
+  //
+  // `costIgnored` keeps zeroing it: that waiver comes from the card's own
+  // optional UNIT cost buying the whole price, and billing a separate
+  // energy/power additional on top would charge one clause twice.
+  const additional = costIgnored ? { energy: 0, power: 0, rainbow: 0 } : optionalAdditionalCostsFor(state, action, card);
   const modifiedEnergy = priceZeroed
     ? 0
     : Math.max(

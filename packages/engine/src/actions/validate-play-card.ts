@@ -1225,8 +1225,34 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // shared function beats two careful copies here specifically.
   const additional = optionalAdditionalCostsFor(state, action, card);
 
-  const effectiveCost = fromHidden || costIgnored
+  // **A from-hidden play owes its ADDITIONAL cost, not nothing.** 811.1.b
+  // waives "its base cost"; 204.1 puts the Base Cost "in the upper left corner
+  // of the card" and 204.2 defines an Additional Cost as one "in addition to
+  // the base cost". So the base terms drop out and `additional` stays.
+  //
+  // `costIgnored` is a DIFFERENT waiver and keeps zeroing everything: it is a
+  // card whose own optional UNIT cost buys the whole price, so charging a
+  // separate energy/power additional on top would double-bill the same clause.
+  //
+  // Reported from playtesting on UNL-028 Pyke - Dockside Butcher, the only card
+  // in the pool printing both `[Hidden]` and an additional cost. All THREE
+  // pricing sites had to move together — enumerator, validator, executor — or
+  // the play is offered and then refused, which is exactly how the first
+  // version of this fix failed.
+  const effectiveCost = costIgnored
     ? { energyCost: 0, powerCost: 0 }
+    : fromHidden
+    ? computeEffectiveCost(
+        actor.floatingEnergy,
+        actor.floatingPower,
+        additional.energy,
+        additional.power,
+        action.optionalPowerPaid && optionalPower?.domain ? optionalPower.domain : basePowerDomain,
+        basePowerDomainAlt,
+        card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,
+        restrictedPowerFor(actor, card.kind),
+        actor.floatingRainbowPower,
+      )
     : computeEffectiveCost(
         actor.floatingEnergy,
         actor.floatingPower,

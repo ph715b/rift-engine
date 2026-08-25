@@ -1976,6 +1976,19 @@ export function legalActions(state: GameState): PlayerAction[] {
       // what tells the validator to ignore the base cost, use Reaction timing and
       // look for the card at a battlefield rather than in hand.
       const hiddenFields = fromHiddenBattlefieldId !== undefined ? { fromHiddenBattlefieldId } : {};
+      /**
+       * Where a from-hidden UNIT must land — 811.1.d.1, "a hidden permanent must
+       * be played to that battlefield".
+       *
+       * Empty for a hidden SPELL (which has no destination of its own) and for
+       * every ordinary play. Used by the cost-variant branches below, which build
+       * BASE plays: a base play is the one destination a from-hidden unit may not
+       * take, so a variant without this would be offered and then refused.
+       */
+      const hiddenUnitDestination =
+        fromHiddenBattlefieldId !== undefined && card.kind === "Unit"
+          ? { destinationBattlefieldId: fromHiddenBattlefieldId }
+          : {};
       // A variant that PAID the cost-ignoring additional cost pays nothing else.
       // Empty rather than small — the validator re-derives exactly this, and the
       // two must agree or the UI offers a click validation then refuses.
@@ -2265,7 +2278,26 @@ export function legalActions(state: GameState): PlayerAction[] {
       // Power higher, exactly as [Accelerate] is, and on its own flag so the two
       // cannot be confused (that one also means "enters ready").
       const optionalPower = optionalPowerCostOf(state, playerIndex, card.defId);
-      if (optionalPower && !fromHidden) {
+      // **NO `!fromHidden` here, unlike the XP, `[Repeat]` and `[Accelerate]`
+      // branches — and that asymmetry is the fix rather than an oversight.**
+      //
+      // Those three carry a note saying the same thing: "811 ignores a hidden
+      // card's BASE cost and an additional cost is not that, so this is a real if
+      // currently unreachable simplification". The RULES half is right —
+      // **811.1.b** waives "its base cost" and **204.2** defines an Additional
+      // Cost as one "in addition to the base cost", so a from-hidden play still
+      // owes and may still pay it. The UNREACHABILITY half is what stopped being
+      // true here.
+      //
+      // Measured across the pool: **exactly one card prints `[Hidden]` and an
+      // additional cost, and it is UNL-028 Pyke - Dockside Butcher** — this
+      // branch's card. Reported from playtesting: "playing red pyke from hidden
+      // triggers but doesn't prompt me with the option to pay a chaos to give him
+      // +2 might" (Fury, not Chaos, but the card is unmistakable). The other three
+      // branches keep their guard, and their notes are now verified rather than
+      // asserted: no `[Hidden]` card in the pool carries `[Accelerate]`,
+      // `[Repeat]` or an optional XP cost.
+      if (optionalPower) {
         // Priced against the cost's OWN domain, not the card's `powerDomain` —
         // Clockwork Keeper prints no Power at all, so that field is null and
         // pricing through it accepted any rune.
@@ -2327,20 +2359,39 @@ export function legalActions(state: GameState): PlayerAction[] {
           //
           // The `[Accelerate]` branch ~1000 lines up carries the identical
           // correction, for the identical reason, found by the identical probe.
+          // **The BASE half is zero for a from-hidden play** — 811.1.b waives
+          // "its base cost", exactly as `effectiveCost` above already does with
+          // `fromHidden ? { energyCost: 0, powerCost: 0 }`. Only the ADDITIONAL
+          // cost is owed (204.2), and that is what the player is being offered
+          // the choice to pay.
+          //
+          // Without this the variant was priced at the printed cost PLUS the
+          // extra, and `submit` refused its own enumerated action: "Pyke -
+          // Dockside Butcher costs 0 energy after floating Energy, payment
+          // supplied 3". The offered-then-refused class again, and the first
+          // version of this fix shipped it — caught by driving the play through
+          // `submit` in the test rather than through `validatePlayCard` alone,
+          // which passed.
+          const baseEnergy = fromHidden
+            ? 0
+            : Math.max(
+                0,
+                modifiedEnergyCost(state, playerIndex, card.kind, card.energyCost, card.defId, fromHand) - own.energy,
+              );
+          const basePower = fromHidden
+            ? 0
+            : Math.max(
+                0,
+                card.powerCost -
+                  own.power -
+                  scaledPowerDiscount(state, playerIndex, card.defId) -
+                  combatSpellPowerDiscount(state, playerIndex, card.kind),
+              );
           const optionalEffective = computeEffectiveCost(
             actor.floatingEnergy,
             actor.floatingPower,
-            Math.max(
-              0,
-              modifiedEnergyCost(state, playerIndex, card.kind, card.energyCost, card.defId, fromHand) - own.energy,
-            ) + additional.energy,
-            Math.max(
-              0,
-              card.powerCost -
-                own.power -
-                scaledPowerDiscount(state, playerIndex, card.defId) -
-                combatSpellPowerDiscount(state, playerIndex, card.kind),
-            ) + additional.power,
+            baseEnergy + additional.energy,
+            basePower + additional.power,
             optionalPower.domain ?? card.powerDomain,
             card.powerDomainAlt,
             card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,
@@ -2370,6 +2421,14 @@ export function legalActions(state: GameState): PlayerAction[] {
               payment: paid,
               ...variant,
               ...hiddenFields,
+              // **811.1.d.1 — a hidden PERMANENT must be played to the battlefield
+              // it was hidden at**, so this variant carries that destination. Every
+              // other variant here is a BASE play, and a base play is exactly what
+              // `baseVariantForbidden` refuses a from-hidden unit further down —
+              // so without this the paid variant would be enumerated into a
+              // destination the validator refuses, which is this file's
+              // offered-then-refused class.
+              ...hiddenUnitDestination,
               optionalPowerPaid: true,
               ...(axis !== undefined ? { targetDiscountAxis: axis } : {}),
             });
