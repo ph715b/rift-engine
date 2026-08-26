@@ -126,7 +126,19 @@ describe("Viktor - Innovator (OGN-117): a card played on an OPPONENT'S turn", ()
     const after = fireHeld(state, { kind: "cardPlayed", casterIndex: 1, playedKind: "Spell", playedInstanceId: "synthetic", playedPowerCost: 0, isToken: false });
 
     expect(after.players[0]!.baseUnits.some((u) => u.isToken)).toBe(false);
-    expect(after).toBe(state);
+    // **Was `expect(after).toBe(state)`** — "not even a copy was made". That
+    // stopped being true on 2026-08-26, when `holdEventTrigger` began recording
+    // the event it is handed: it now returns a fresh object every time, whether
+    // or not anything listened.
+    //
+    // The line above already asserts the behaviour this test is named for (no
+    // token was made). What the identity assertion added was "nothing about the
+    // board moved either", and that is worth keeping — so it is asserted on the
+    // board rather than on the reference.
+    expect(after.players, "the board changed despite nothing triggering").toEqual(state.players);
+    expect(after.battlefields).toEqual(state.battlefields);
+    expect(after.spellChain, "something reached the chain").toHaveLength(0);
+    expect(after.pendingTriggers, "something reached the holding pen").toHaveLength(0);
   });
 
   it("fires through executePlayCard, not only through a hand-built event", () => {

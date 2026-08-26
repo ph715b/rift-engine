@@ -1,4 +1,7 @@
-# Surfacing the engine's events — measured, 2026-08-26
+# Surfacing the engine's events — measured, then BUILT, 2026-08-26
+
+> **BUILT.** The scoping below stands as written; what it got wrong and what it
+> left open are recorded at the end.
 
 **Do not copy the verification loop into this file.** It is in `CLAUDE.md`.
 
@@ -94,3 +97,22 @@ The alternative — keeping the board on snapshot diffing — is what produced t
 two differs already in `packages/web`, and it cannot express the thing a log needs
 most: WHY something happened. A diff can see a unit left a battlefield. It cannot
 tell "died in combat" from "was killed by a spell" from "was recalled".
+
+## What the build found that the scoping did not
+
+**The spike did not wrap `submit`, so it missed two more identity assertions.**
+Clearing `recentEvents` on the way in creates a fresh object, which broke *"a
+refused action must leave the state alone"* in two tests. That contract is right
+and worth keeping: `submit` now hands the caller's OWN state back when the result
+is Invalid. Three test failures in total, not one — and only the predicted one
+needed a test change.
+
+**The +3.7% is the state SPREAD, not the array growth.** Capping the list at 64
+took it to **+2.9%** — 106.8s against a 103.8s baseline, two runs each. So the
+remaining cost is `{ ...state }` on every event, which a capture flag WOULD
+remove. Not taken: 2.9% is ~3s on `walkout` and ~10-15s on `reachability`, and a
+flag adds a rule about who sets it that can be got wrong silently. Available if
+the runtime ever matters.
+
+**`GameEvent` needed a second type-only import**, in `game-engine.ts`, for the
+`SubmitOutcome` return type. Same trick, same reason, no cycle.

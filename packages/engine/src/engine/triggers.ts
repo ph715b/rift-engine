@@ -1976,6 +1976,28 @@ const CONQUER_DOUBLERS: Readonly<Record<string, GameEvent["kind"]>> = {
   "UNL-087": "battlefieldHeld", // Blue Sentinel
 };
 
+/**
+ * How many events `GameState.recentEvents` keeps.
+ *
+ * `submit` clears the list per action, so real play never approaches this — the
+ * cap exists for the AI's lookahead, which applies thousands of actions through
+ * `applyBare` WITHOUT going through `submit`, and would otherwise grow the list
+ * across a whole rollout. Appending to a growing array copies it, so unbounded
+ * growth is quadratic in a place nothing ever reads the result.
+ *
+ * 64 is far above any single action: the longest chains this engine produces are
+ * a few dozen items, and a Cleanup fires a handful of events per battlefield.
+ */
+const RECENT_EVENT_CAP = 64;
+
+/** Appends within the cap, dropping from the FRONT — the newest events are the
+ *  ones a caller wants, and an action that somehow raised more than 64 is better
+ *  reported partially than not at all. */
+function appendRecentEvent(existing: GameEvent[] | undefined, event: GameEvent): GameEvent[] {
+  const next = existing === undefined ? [event] : [...existing, event];
+  return next.length > RECENT_EVENT_CAP ? next.slice(next.length - RECENT_EVENT_CAP) : next;
+}
+
 /** For coverage.ts — the second clause of each doubler, whose first clause is an
  *  ordinary trigger registered in a domain file. */
 export function triggerDoublerDefIds(): string[] {
@@ -2008,6 +2030,22 @@ export function holdEventTrigger(
    */
   placesFirst?: 0 | 1,
 ): GameState {
+  /**
+   * **Every event in the engine passes through here, so this is where they are
+   * recorded.** 36 call sites raise events and not one of them changed — the
+   * funnel already existed, it just discarded what it was handed.
+   *
+   * `submit` clears the list before each action and returns it afterwards, so it
+   * holds one action's worth and no more. Nothing else reads it, so an unread
+   * accumulation during the AI's lookahead is wasted work rather than a wrong
+   * answer — see `RECENT_EVENT_CAP` for the bound that keeps it cheap.
+   *
+   * **This makes the function always return a NEW state**, where it used to
+   * return the identical object when nothing listened. One test asserted that
+   * identity; its behavioural half was already covered on the line above it. See
+   * docs/event-stream-scoping.md.
+   */
+  state = { ...state, recentEvents: appendRecentEvent(state.recentEvents, event) };
   const registry = allEventTriggers();
   const held: TriggerChainEntry[] = [];
   for (const listener of allListeningPermanents(state, placesFirst)) {

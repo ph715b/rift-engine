@@ -1,3 +1,8 @@
+// A TYPE-ONLY import, and it has to be: `GameEvent` is declared in
+// `engine/triggers.ts`, which imports this module — so naming it here is a
+// cycle at the value level and nothing at all once types are erased. Moving the
+// type to a leaf module would also work and costs a great deal more.
+import type { GameEvent } from "../engine/triggers.js";
 import type { Domain } from "./domain.js";
 import type { CardInstance, GearInstance, LegendInstance, SpellInstance, UnitInstance } from "./card.js";
 import type { RuneCard } from "./rune.js";
@@ -1875,5 +1880,24 @@ export interface GameState {
    * Resolved strictly front-to-back, so the order questions are asked in is the
    * order they were raised in — which for Cull the Weak is APNAP.
    */
+  /**
+   * **The events raised since the current action began** — the engine's own
+   * narration of what just happened, kept instead of thrown away.
+   *
+   * `submit` clears this before it runs an action and hands the result back
+   * alongside the new state, so a caller learns WHY the board changed rather than
+   * having to infer it. Before this, `submit` returned `{ type: "Ok" }` and the
+   * web recovered causation by diffing snapshots — two independent differs, and
+   * neither can tell "died in combat" from "killed by a spell" from "recalled".
+   *
+   * **Optional, and that is a measurement rather than a preference.** Made
+   * required it costs 15 typecheck errors in hand-built `GameState` literals
+   * across the test suite; optional it costs none, and the one read site pays a
+   * `?? []`. See docs/event-stream-scoping.md.
+   *
+   * Appended by `holdEventTrigger`, which every event in the engine already flows
+   * through — 36 call sites, none of which changed.
+   */
+  recentEvents?: GameEvent[];
   pendingDecisions: PendingDecision[];
 }

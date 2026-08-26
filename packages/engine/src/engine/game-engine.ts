@@ -1,5 +1,6 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
 import type { PlayerAction } from "../actions/player-action.js";
+import type { GameEvent } from "./triggers.js";
 import { validatePlayCard } from "../actions/validate-play-card.js";
 import { executePlayCard } from "../actions/execute-play-card.js";
 import { validatePass } from "../actions/validate-pass.js";
@@ -92,7 +93,57 @@ export function startGame(state: GameState): { state: GameState; result: SubmitR
  * mechanic belongs to PassFocus instead (executePassFocus), which only
  * passes Focus within an open Showdown, not the whole turn.
  */
-export function submit(state: GameState, action: PlayerAction): { state: GameState; result: SubmitResult } {
+/**
+ * The result of one submitted action: the new state, the outcome, and **what
+ * happened on the way**.
+ *
+ * `events` is the engine's own narration — the same `GameEvent`s its triggers
+ * already fire, which used to be computed and discarded. A caller can now say
+ * "a unit died in combat" instead of noticing that a battlefield has one fewer
+ * card than it did last render.
+ *
+ * Empty for a refused action: nothing happened, so nothing is reported.
+ */
+export interface SubmitOutcome {
+  state: GameState;
+  result: SubmitResult;
+  events: readonly GameEvent[];
+}
+
+/**
+ * Submits an action, and reports the events it raised.
+ *
+ * **The events are cleared before the action and read after it**, so `events`
+ * describes THIS action and nothing earlier. `GameState.recentEvents` carries
+ * them on the state because that is the only channel the engine's internals
+ * share; this wrapper is what turns a rolling field into a per-action answer.
+ *
+ * The AI does not come through here — `heuristic-ai`'s lookahead calls the
+ * executors directly — which is why the field is capped rather than trusted to
+ * be reset. See `RECENT_EVENT_CAP` in triggers.ts.
+ */
+export function submit(state: GameState, action: PlayerAction): SubmitOutcome {
+  const outcome = submitAction({ ...state, recentEvents: [] }, action);
+  /**
+   * **A REFUSED action returns the state it was given — the identical object.**
+   *
+   * That contract predates this wrapper and two tests assert it in as many words
+   * ("a refused action must leave the state alone"). Clearing `recentEvents` on
+   * the way in makes a fresh object, so without this line every refusal returned
+   * a state that was equal to the caller's but not the same as it.
+   *
+   * Worth keeping rather than weakening the tests: "nothing happened" is exactly
+   * what an Invalid result means, and a caller that compares by identity to
+   * decide whether to re-render is asking a fair question.
+   *
+   * Events are empty for the same reason. A refusal raises none — it never got
+   * far enough to raise anything.
+   */
+  if (outcome.result.type === "Invalid") return { state, result: outcome.result, events: [] };
+  return { ...outcome, events: outcome.state.recentEvents ?? [] };
+}
+
+function submitAction(state: GameState, action: PlayerAction): { state: GameState; result: SubmitResult } {
   // A win is declared IN A CLEANUP (rule 194.2: "A player wins the game if, in a
   // cleanup, they have points greater than or equal to the Victory Score..."), and
   // 321 says a Cleanup cannot occur while a resolution is suspended. So while
