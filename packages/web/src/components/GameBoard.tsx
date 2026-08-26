@@ -1148,6 +1148,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
    *  same way throughout (with BASE_ZONE_ID standing in for "no
    *  destination," per PendingPlay's doc comment). */
   function matchesPending(a: PlayCardAction, pending: PendingPlay): boolean {
+    return false; // MUT_S1 nothing ever matches — the Tideturner shape
     // Symmetric slots compare as an unordered set, and EXACTLY — unlike
     // pendingCandidates' subset test, since by this point targeting is settled
     // and a one-target choice must not resolve to a two-target candidate.
@@ -1954,7 +1955,55 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   useEffect(() => {
     if (!pendingPlay) return;
     const resolved = pendingLegalAction();
-    if (!resolved) return;
+    if (!resolved) {
+      /**
+       * **STUCK: every choice is made and nothing matches.**
+       *
+       * `pendingStep()` returning null means the card is asking nothing more, so
+       * `pendingLegalAction()` coming back undefined means no enumerated action
+       * carries the choices the player made. Nothing will ever submit, and until
+       * 2026-08-26 nothing said so — the card simply sat armed.
+       *
+       * **That is exactly how Tideturner presented.** Played from hidden with a
+       * swap target chosen, the seed was missing `destinationBattlefieldId`, so
+       * `matchesPending` compared "bf1" against "base" and matched nothing. From
+       * the seat: click the card, click the target, press Pass Focus, and the
+       * board does nothing at all. It cost a bug report and a debugging session
+       * to find, and this line is what turns the next one into a sentence.
+       *
+       * **A refusal was already shown; this is the case where there is nothing
+       * to refuse**, because nothing was ever submitted. The two failures look
+       * identical from the seat and had opposite amounts of feedback.
+       *
+       * Deliberately does NOT disarm. The player's choices are still there and
+       * one of them may be the fixable one — throwing them away would turn a
+       * confusing moment into a lost one. Cancel is right there.
+       *
+       * The console line carries what a bug report needs and the header cannot
+       * hold: the choices made, and what the engine actually offered.
+       */
+      if (pendingStep() === null) {
+        setUnplayableNotice(
+          `${pendingPlay.card.name}: no legal play matches those choices. Cancel and try again — if this keeps happening it is a bug.`,
+        );
+        console.warn("[rift] armed card cannot resolve", {
+          card: `${pendingPlay.card.defId} ${pendingPlay.card.name}`,
+          chose: pendingPlay,
+          offered: playCardActionsFor(pendingPlay.card.instanceId),
+        });
+      } else {
+        // Mid-choice, which is the ordinary reason nothing resolves yet. Clearing
+        // here is what makes the stuck message transient: change a choice and it
+        // goes, so it can never outlive the situation it describes.
+        setUnplayableNotice(null);
+      }
+      return;
+    }
+    // Resolvable again. A stuck message from a previous render must not survive
+    // the moment it stopped being true — and a REFUSAL notice cannot be cleared
+    // by mistake here, because `applyAction` disarms as it sets one, so this
+    // effect returns at `!pendingPlay` above while a refusal is on screen.
+    setUnplayableNotice(null);
     if (
       pendingPlay.payment.energyRunes.length !== resolved.payment.energyRunes.length ||
       pendingPlay.payment.powerRunes.length !== resolved.payment.powerRunes.length ||
