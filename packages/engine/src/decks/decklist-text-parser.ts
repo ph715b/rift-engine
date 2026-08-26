@@ -1,4 +1,5 @@
 import type { CardRegistry } from "../cards/card-registry.js";
+import { loadBattlefieldDefinitions } from "../cards/card-loader.js";
 import { isDomain, sortByDomainOrdinal } from "../model/domain.js";
 import { BATTLEFIELD_COUNT, LEGACY_BATTLEFIELDS, RUNE_DECK_SIZE, SIDEBOARD_SIZE, type DeckList } from "./deck-list.js";
 
@@ -18,11 +19,31 @@ const SECTION_KEYS = new Set(["legend", "champion", "maindeck", "battlefields", 
 type SectionKey = "legend" | "champion" | "maindeck" | "battlefields" | "runes" | "sideboard";
 
 function normalizeHeader(line: string): SectionKey | null {
-  const key = line.trim().replace(/:$/, "").replace(/\s+/g, "").toLowerCase();
-  return SECTION_KEYS.has(key) ? (key as SectionKey) : null;
+  const key = line
+    .trim()
+    // A trailing count, which several exporters add — "Battlefields (3):",
+    // "Main Deck (40)". The colon is stripped on BOTH sides of the parenthetical
+    // because either order occurs, and stripping it only once (before the count,
+    // as this first did) leaves "battlefields(3)" unrecognised — which is exactly
+    // the silent miss this whole change is about.
+    .replace(/[:\s]*$/, "")
+    .replace(/\s*\(\s*\d+\s*\)\s*$/, "")
+    .replace(/[:\s]*$/, "")
+    .replace(/\s+/g, "")
+    .toLowerCase();
+  if (SECTION_KEYS.has(key)) return key as SectionKey;
+  // **Singular headers.** "Battlefield:" and "Rune:" are both in the wild, and a
+  // header this parser does not recognise is not an error it can see: the
+  // section simply never opens, its lines are skipped as orphans, and the deck
+  // imports with the default battlefields and no warning. That silence is what
+  // the reported bug actually was.
+  const pluralised = `${key}s`;
+  return SECTION_KEYS.has(pluralised) ? (pluralised as SectionKey) : null;
 }
 
-const DATA_LINE = /^(\d+)\s+(.+)$/;
+/** "3 Card Name" and "3x Card Name" — the `x` is optional and may be attached to
+ *  the digits or spaced. */
+const DATA_LINE = /^(\d+)\s*x?\s+(.+)$/i;
 
 /** Real copy-paste artifact: web text commonly substitutes curly quotes
  *  for straight apostrophes in names like "Zhonya's Hourglass". */
@@ -107,8 +128,19 @@ export function parseDecklistText(text: string, registry: CardRegistry): Decklis
     }
     if (!current) continue;
     const match = DATA_LINE.exec(line);
-    if (!match) continue;
-    sections[current].push({ qty: Number.parseInt(match[1]!, 10), name: match[2]! });
+    if (match) {
+      sections[current].push({ qty: Number.parseInt(match[1]!, 10), name: match[2]! });
+      continue;
+    }
+    // **A bare name, with no quantity — accepted in the BATTLEFIELDS section
+    // only, and that restriction is principled rather than cautious.**
+    //
+    // A battlefield list is always exactly three battlefields, one copy each, so
+    // a quantity carries no information and plenty of exporters omit it. A main
+    // deck line without one is genuinely ambiguous — it could be a comment, a
+    // site footer, or a card — and guessing 1 there would turn "Deck built with
+    // Piltover Archive" into a card name.
+    if (current === "battlefields") sections.battlefields.push({ qty: 1, name: line });
   }
 
   const unresolvedNames: string[] = [];
@@ -190,12 +222,42 @@ export function parseDecklistText(text: string, registry: CardRegistry): Decklis
     runeDomainBCount = RUNE_DECK_SIZE / 2;
   }
 
-  // Fall back to LEGACY_BATTLEFIELDS (parseDeckFile's own convention) when
-  // the pasted section doesn't yield exactly 3 names — DeckBuilder has no
-  // battlefield picker to fix a wrong count in-UI, since LEGACY_BATTLEFIELDS
-  // is the only known battlefield-name pool anywhere in the engine yet.
+  /**
+   * **Battlefield names are RESOLVED now, and a name that does not resolve is
+   * REPORTED rather than silently swapped.**
+   *
+   * Reported from playtesting: *"parser for deck import is not getting the
+   * battlefields"*. Four shapes fell through — a singular `Battlefield:` header,
+   * a `Battlefields (3):` header, bare names with no quantity, and an `Nx`
+   * prefix — and every one of them landed here, took the fallback, and imported
+   * a deck with three battlefields the player never chose. The header and
+   * quantity forms are fixed above; this is the part that made those failures
+   * INVISIBLE.
+   *
+   * The old note said `LEGACY_BATTLEFIELDS` "is the only known battlefield-name
+   * pool anywhere in the engine yet". That stopped being true when the last of
+   * the 64 landed: `loadBattlefieldDefinitions()` is a real pool, so a pasted
+   * name can be checked rather than trusted, and a typo or an out-of-pool
+   * battlefield now surfaces in `unresolvedNames` exactly as an unknown CARD
+   * does — which is the whole reason that field exists.
+   *
+   * The fallback stays, because `DeckBuilder` still has no battlefield picker
+   * and an import that produced an invalid deck would be worse than one that
+   * produced a playable default. What changes is that it is no longer silent.
+   */
   const parsedBattlefieldNames = sections.battlefields.flatMap(({ qty, name }) => Array(qty).fill(name) as string[]);
-  const battlefieldNames = parsedBattlefieldNames.length === BATTLEFIELD_COUNT ? parsedBattlefieldNames : LEGACY_BATTLEFIELDS;
+  const battlefieldByName = new Map(loadBattlefieldDefinitions().map((def) => [fold(def.name), def.name]));
+  // Resolved to the pool's OWN spelling, so a list pasted with different casing
+  // or a curly apostrophe still names the battlefield the rest of the engine
+  // knows — the same normalisation `resolve` does for cards.
+  const resolvedBattlefieldNames: string[] = [];
+  for (const name of parsedBattlefieldNames) {
+    const canonical = battlefieldByName.get(fold(name));
+    if (canonical === undefined) unresolvedNames.push(name);
+    else resolvedBattlefieldNames.push(canonical);
+  }
+  const battlefieldNames =
+    resolvedBattlefieldNames.length === BATTLEFIELD_COUNT ? resolvedBattlefieldNames : LEGACY_BATTLEFIELDS;
 
   const championDef = championId ? registry.tryGet(championId) : undefined;
   const deckList: DeckList = {
