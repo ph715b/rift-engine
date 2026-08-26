@@ -2484,7 +2484,43 @@ export function GameBoard({ initialConfig, onMainMenu, seed }: GameBoardProps) {
    * to 486.5's retired battlefields, and neither has an answer the player asked
    * for.
    */
-  const exitControls = <GameExitControls onRestart={() => startNewMatch(config)} onMainMenu={onMainMenu} />;
+  /**
+   * **Concede — 650, "A player may concede at any time."**
+   *
+   * **651.1** hands the win to the player remaining, and that is the whole
+   * implementation: set this game's result to `GameOver` with the opponent as
+   * winner. Everything downstream is the ordinary game-over path — the series
+   * score banks it, 407.4's loser-goes-first tracking reads it, and a Best of 3
+   * shows `SeriesPanel` rather than `RematchPanel` exactly as it would for a
+   * conceded-to defeat on the board.
+   *
+   * **No engine change, and deliberately none.** A `Concede` action would have to
+   * be reachable by `submit` without being enumerated by `legalActions` — and
+   * `legalActions` is the AI's action space, so an enumerated concession is a
+   * concession the AI could take. Conceding is a decision about whether to keep
+   * PLAYING the match rather than a play within it, which is why it lives beside
+   * Restart and Main Menu.
+   *
+   * The state is kept as-is rather than cleared. A conceded board should still
+   * show the position it was conceded in — the player is looking at why.
+   */
+  function handleConcede() {
+    setGame({ state, result: { type: "GameOver", winnerId: state.players[AI_INDEX].id } });
+  }
+
+  const exitControls = (
+    <GameExitControls
+      onRestart={() => startNewMatch(config)}
+      onMainMenu={onMainMenu}
+      // Only while there is a game to concede. The pregame screens have none yet
+      // and a finished one is already decided — see the prop's own note for why
+      // this is absence rather than a disabled button.
+      {...(game !== null && !isGameOver ? { onConcede: handleConcede } : {})}
+      // A Best of 3 that is not yet at match point loses only THIS game, which is
+      // Tournament 410.1 rather than 410.2 — and the prompt says so.
+      concedeEndsGameOnly={config.format === "bo3" && series.humanGameWins + series.aiGameWins < 2}
+    />
+  );
 
   if (pregame === "selectBattlefield") {
     return (
