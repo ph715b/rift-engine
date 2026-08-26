@@ -47,6 +47,9 @@ import {
 } from "@rift-engine/engine";
 import { targetingBlockedReason } from "../unplayable-target-reason.js";
 import { unanimousPlayFields } from "../hidden-play-seed.js";
+import type { GameEvent } from "@rift-engine/engine";
+import { linesFrom, type LogLine } from "../event-log.js";
+import { GameLog } from "./GameLog.js";
 import {
   chosenFirstPlayer,
   createNewGame,
@@ -361,6 +364,10 @@ function freshSeries(): SeriesState {
   return { humanGameWins: 0, aiGameWins: 0, gameNumber: 1, humanUsedBattlefields: [], aiUsedBattlefields: [] };
 }
 
+/** How many log lines are kept. A long game raises thousands of events and
+ *  nobody scrolls back past the last few dozen; the oldest go first. */
+const LOG_LINE_CAP = 200;
+
 interface GameBoardProps {
   initialConfig: MatchConfig;
   onMainMenu: () => void;
@@ -489,6 +496,17 @@ export function GameBoard({ initialConfig, onMainMenu, seed }: GameBoardProps) {
   // about the board (reported from live play for power-cost cards, whose
   // blocker is usually a missing domain rune rather than anything visible).
   const [unplayableNotice, setUnplayableNotice] = useState<string | null>(null);
+  /**
+   * **The game log** — what happened, in order, from the engine's own events.
+   *
+   * Both submit sites feed it through `recordEvents`, so the human's actions and
+   * the AI's are narrated by the same code. That matters more than it sounds: the
+   * AI's turn was completely silent before this, and a player had to infer a whole
+   * turn from a changed board.
+   */
+  const [logLines, setLogLines] = useState<LogLine[]>([]);
+  const [logOpen, setLogOpen] = useState(false);
+  const nextLogId = useRef(0);
   // A trash pile being browsed (either player's — it's public information).
   // Purely a viewer: it never feeds a pending play, which is why it's its own
   // state rather than another PendingStep.
@@ -585,8 +603,19 @@ export function GameBoard({ initialConfig, onMainMenu, seed }: GameBoardProps) {
    * — and a message appearing here means those two disagreed, which is a bug
    * worth seeing rather than hiding.
    */
+  /** Narrates one action's events onto the log. The state passed is the board the
+   *  events PRODUCED, which is what makes a just-arrived card's name resolvable —
+   *  see `nameOf` in event-log.ts. */
+  function recordEvents(outcome: { state: GameState; events: readonly GameEvent[] }) {
+    if (outcome.events.length === 0) return;
+    const fresh = linesFrom(outcome.events, outcome.state, HUMAN_INDEX, () => (nextLogId.current += 1));
+    if (fresh.length === 0) return;
+    setLogLines((prev) => [...prev, ...fresh].slice(-LOG_LINE_CAP));
+  }
+
   function applyAction(action: PlayerAction) {
     const next = submit(state, action);
+    recordEvents(next);
     setGame(next);
     setSelectedUnitIds(new Set());
     setPendingPlay(null);
@@ -621,7 +650,11 @@ export function GameBoard({ initialConfig, onMainMenu, seed }: GameBoardProps) {
     if (canAct) return;
     const timer = setTimeout(() => {
       const action = chooseAction(state, HUMAN_OPPONENT_WEIGHTS);
-      setGame(submit(state, action));
+      const next = submit(state, action);
+      // The AI's turn used to leave no trace at all. Same recorder as the human's,
+      // so neither seat can be narrated differently from the other.
+      recordEvents(next);
+      setGame(next);
     }, AI_MOVE_DELAY_MS);
     return () => clearTimeout(timer);
   }, [state, canAct, isGameOver]);
@@ -2204,6 +2237,9 @@ export function GameBoard({ initialConfig, onMainMenu, seed }: GameBoardProps) {
     setDragOverZoneId(null);
     setUnplayableNotice(null);
     setViewingTrash(null);
+    // A new game starts with an empty log — the previous game's narration
+    // scrolling above this one's opening would be worse than none.
+    setLogLines([]);
     // A resolution beat left running from the finished game would otherwise
     // show a chain entry over the next one's opening board.
     clearResolutionBeat();
@@ -2587,6 +2623,10 @@ export function GameBoard({ initialConfig, onMainMenu, seed }: GameBoardProps) {
         {seriesNote && <span className="header-series">{seriesNote}</span>}
         {exitControls}
         {unplayableNotice && <span className="header-notice">{unplayableNotice}</span>}
+
+        {/* The log sits over the board rather than beside it — see GameLog for
+            why a new row would shrink every card on screen. */}
+        <GameLog lines={logLines} open={logOpen} onToggle={() => setLogOpen((v) => !v)} humanIndex={HUMAN_INDEX} />
         {/* **The shuffle, so a bug report can carry it.** Every playtest report
             against this board has had to describe the situation in prose and hope
             it could be reconstructed; this is the one number that reproduces the

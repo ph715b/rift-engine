@@ -44,6 +44,12 @@ export * from "./engine/turn-manager.js";
 export * from "./engine/win-condition.js";
 export * from "./engine/submit-result.js";
 export * from "./engine/game-engine.js";
+
+// The event vocabulary, for a caller that wants to NARRATE what `submit`
+// returned rather than diff the board. Types only: `triggers.js` is a large
+// module whose runtime surface is the engine's own business, and a bare
+// `export *` from it would put every listener registration on the public API.
+export type { GameEvent, DeathContext } from "./engine/triggers.js";
 export * from "./engine/combat.js";
 export * from "./engine/cleanup.js";
 export * from "./engine/timing.js";
