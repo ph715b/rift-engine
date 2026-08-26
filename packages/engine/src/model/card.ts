@@ -373,6 +373,27 @@ export interface GearInstance extends CardInstanceBase, EmpowerableInstance {
   powerCost: number;
   powerDomain: Domain | null;
   powerDomainAlt?: Domain;
+  /**
+   * **`[Quick-Draw]`'s "This has [Reaction]."**
+   *
+   * The DEFINITION has carried this since Quick-Draw was written — the loader
+   * sets it from the keyword's own reminder text — and the INSTANCE dropped it.
+   * So a Quick-Draw Gear could not actually be played at Reaction speed:
+   * `timing.timingTierOf` shape-tests the instance (`"isReaction" in card`),
+   * found no field, tiered it Default, and the board reported *"Long Sword needs
+   * [Reaction] to be played while a spell is on the chain."*
+   *
+   * **The identical loss the `Spell` branch of `createCardInstance` already
+   * documents for `isAction`**, one card kind over: "the definition carried it,
+   * a PlayCardAction carries the INSTANCE, and the instance didn't have it."
+   * `timingTierOf`'s own comment even anticipated the fix — "adding it to Gear
+   * later then needs no change here" — and it needed none. Found in playtest,
+   * 2026-08-08.
+   *
+   * Required rather than optional, so a construction site that forgets it is a
+   * type error rather than a silently non-Reaction Gear.
+   */
+  isReaction: boolean;
   attachedToInstanceId: string | null;
   /**
    * Was this gear attached to its current wearer THIS TURN? Brutalizer's
@@ -470,16 +491,6 @@ export interface GearInstance extends CardInstanceBase, EmpowerableInstance {
    * raw parse.
    */
   keywords: Partial<Record<Keyword, number>>;
-  /**
-   * Printed `[Reaction]`, which for Gear comes from `[Quick-Draw]`'s reminder
-   * text ("This has [Reaction]").
-   *
-   * `timingTierOf` tests `"isReaction" in card`, and its own comment anticipated
-   * this exactly — "adding it to Gear later then needs no change here". It was
-   * right; the field simply never arrived, so every Quick-Draw Gear read as
-   * Default tier and could not be played in a Showdown.
-   */
-  isReaction?: boolean;
 }
 
 export type CardInstance = LegendInstance | UnitInstance | SpellInstance | GearInstance;

@@ -20,6 +20,11 @@ import {
 } from "./death-ward.js";
 import { dispatchEvent, holdEventTrigger, holdSelfTrigger, holdUnitDied, killGear } from "./triggers.js";
 import { holdBattlefieldTrigger } from "./battlefield-abilities.js";
+// The same safe cycle as the line above: `unit-triggers` imports from here, and
+// this binding is read only inside `holdMoveEvents`, which runs long after every
+// module has initialised. The cycle that DID bite this codebase was a top-level
+// constant read DURING init, not a function called at runtime.
+import { holdMoveTrigger } from "./unit-triggers.js";
 import type { UnitZone } from "./target-lookup.js";
 // legend-abilities imports drawCards from here, so this is a cycle — the same
 // safe shape as the triggers.ts one above: the binding is only read inside
@@ -1516,9 +1521,12 @@ export function addBuff(state: GameState, targetInstanceId: string): GameState {
  * enemy onto neutral ground therefore contests it for THEM, which is the card's
  * real use and not something a caster-indexed call would have got right.
  *
- * On-move triggers deliberately do NOT fire: they read "when I move" on cards
- * whose controller chose to move them, and no card in this pool has one that
- * could be reached this way. Named here rather than left to be discovered.
+ * **On-move triggers DO fire — see `holdMoveEvents`, and 445.2.** This comment
+ * asserted the opposite for the life of this helper, on two grounds that were
+ * both wrong: that "when I move" reads only on cards whose controller chose to
+ * move them, and that no card in this pool could be reached this way. 445.2 says
+ * a Permanent changing position on the Board "is a Move" with no clause about who
+ * chose, and Traveling Merchant is reached by any Charm.
  */
 /** The battlefield id a unit was standing at, or "base". `unitMoved.from` names
  *  a base at one end already, so this is symmetric with it. */
@@ -1560,7 +1568,27 @@ function holdMoveEvents(
   // Kept because it guards the NEXT caller: a phantom move event would fire 17
   // cards for a relocation that did not happen.
   if (from === to) return state;
-  const next = holdEventTrigger(state, {
+  // **The MOVER'S OWN trigger — the half this helper was missing.** The two
+  // below are the board-wide events, keyed by nothing in particular and read by
+  // listeners sitting on other cards (Stealthy Pursuer, Back-Alley Bar). They
+  // can never reach `ON_MOVE_TRIGGERS`, which is keyed by the MOVING unit's own
+  // defId — so a Charm fired every watcher of the move and not the card that
+  // moved. Traveling Merchant's "when I move, discard 1 then draw 1" was the
+  // playtest report.
+  //
+  // `isFirstMoveThisTurn` is derived from the POST-increment count, which the
+  // callers bump at placement: a first move reads 1 here. Miss Fortune -
+  // Captain is the only listener that asks, and a spell-driven move has to spend
+  // her once-per-turn exactly as a walk does.
+  //
+  // `to` is a battlefield id or `"base"`. Noxian Drummer's "when I move TO A
+  // BATTLEFIELD" is what makes that distinction load-bearing, and his own
+  // `applies` gate is what enforces it.
+  const withOwnTrigger = holdMoveTrigger(state, unit, ownerIndex, {
+    battlefieldId: to,
+    isFirstMoveThisTurn: unit.movesThisTurn === 1,
+  });
+  const next = holdEventTrigger(withOwnTrigger, {
     kind: "unitMoved",
     moverIndex: ownerIndex,
     unitInstanceId: unit.instanceId,
