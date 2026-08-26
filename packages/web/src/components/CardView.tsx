@@ -1,6 +1,7 @@
 import { useMemo, useState, useSyncExternalStore } from "react";
 import { motion, useReducedMotion } from "framer-motion";
-import { ARRIVE, DEPART, INSTANT, READOUT, TAP, TRAVEL, staggerDelay } from "../motion.js";
+import { ARRIVE, DEPART, DIE, INSTANT, READOUT, TAP, TRAVEL, staggerDelay } from "../motion.js";
+import { FloatingNumbers } from "./FloatingNumbers.js";
 import { defaultCardRegistry, loadTokenArt, type CardInstance } from "@rift-engine/engine";
 import { DOMAIN_COLORS } from "../domain-colors.js";
 import { useCardHover } from "../hover-preview.js";
@@ -111,6 +112,17 @@ interface CardViewProps {
    *  `staggerDelay`. Omitted for a card moving alone, which is nearly all of
    *  them; 144.3's simultaneous move is what makes it worth having. */
   staggerIndex?: number;
+  /**
+   * This unit DIED, rather than leaving for any of the other reasons a card
+   * leaves the board.
+   *
+   * **The one piece of this board's motion that genuinely needs the event
+   * stream.** Every departure looks identical to a diff — recalled, returned to
+   * hand, banished, killed — because all a diff sees is a card that is no longer
+   * there. `unitDied` says which, and a death that reads like a recall is the
+   * difference between "I lost that" and "I moved that".
+   */
+  isDying?: boolean;
 }
 
 /**
@@ -169,6 +181,7 @@ export function CardView({
   attachedToUnitName,
   currentMight,
   staggerIndex,
+  isDying,
   onClick,
   onUnavailableClick,
   unavailableNote,
@@ -272,7 +285,16 @@ export function CardView({
        */
       initial={{ opacity: 0, scale: 0.86, y: 8 }}
       animate={{ opacity: 1, scale: 1, y: 0, rotate: showExhausted ? 90 : 0 }}
-      exit={{ opacity: 0, scale: 0.72, y: 10 }}
+      // **A DEATH is not a departure.** An ordinary exit sinks and shrinks away —
+      // a card being picked up. A death drops, tips over and blows out bright
+      // before it goes, which is the gesture that reads as destroyed rather than
+      // removed. `isDying` comes off the `unitDied` event; nothing a diff can see
+      // distinguishes the two.
+      exit={
+        isDying
+          ? { opacity: 0, scale: 1.12, y: 26, rotate: (showExhausted ? 90 : 0) + 12, filter: "brightness(2.2)" }
+          : { opacity: 0, scale: 0.72, y: 10 }
+      }
       transition={
         reducedMotion
           ? INSTANT
@@ -281,7 +303,9 @@ export function CardView({
               delay: staggerDelay(staggerIndex ?? 0, false),
               layout: TRAVEL,
               rotate: TAP,
-              exit: DEPART,
+              // A death takes longer than a tidy-away, deliberately: it is the
+              // one departure the player is meant to watch.
+              exit: isDying ? DIE : DEPART,
             }
       }
       drag={Boolean(onDragEnd)}
@@ -415,6 +439,12 @@ export function CardView({
             {currentMight}
           </motion.span>
         </div>
+      )}
+      {/* Damage and Might changes, flying off the card. Derived from props
+          rather than events — both are state, so a change is visible by
+          comparing renders. */}
+      {card.kind === "Unit" && (
+        <FloatingNumbers damage={card.damage} mightThisTurn={card.mightThisTurn} reduced={reducedMotion} />
       )}
       {card.kind === "Gear" && attachedToUnitName !== undefined && (
         // Gear renders in a flat row with no spatial link to its wearer, so an

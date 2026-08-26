@@ -51,6 +51,13 @@ export const ARRIVE: Transition = { type: "spring", stiffness: 300, damping: 26,
  *  the way out reads as the card changing its mind. */
 export const DEPART: Transition = { type: "tween", duration: 0.26, ease: [0.4, 0, 1, 1] };
 
+/** A unit DYING. Slower than `DEPART` and eased so it accelerates away — a
+ *  death is the one departure the player is meant to watch, and the extra
+ *  200ms is what separates 'destroyed' from 'tidied up'. Paired with a
+ *  brightness blow-out in `CardView`, which is the part that reads as damage
+ *  rather than as removal. */
+export const DIE: Transition = { type: "tween", duration: 0.46, ease: [0.32, 0, 0.67, 0] };
+
 /** A NUMBER changing, or a value flashing — Might, points. Short and linear-ish
  *  so it reads as a readout updating rather than an object moving. */
 export const READOUT: Transition = { type: "tween", duration: 0.34, ease: [0.2, 0.8, 0.3, 1] };

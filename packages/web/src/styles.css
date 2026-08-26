@@ -122,6 +122,72 @@ button:disabled {
   max-width: 32ch;
 }
 
+/* ── floating combat numbers ───────────────────────────────────────────────
+   Damage and Might changes flying off a card. Centred over it and
+   `pointer-events: none`, so a number can never eat the click that the player
+   is about to make on the card underneath it — these appear exactly when the
+   board is busiest. */
+.floating-numbers {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  z-index: 6;
+}
+
+.floating-number {
+  position: absolute;
+  font-weight: 800;
+  font-size: 1.5rem;
+  font-variant-numeric: tabular-nums;
+  /* A dark halo rather than a shadow: these land on card ART, which can be any
+     colour, and a plain light glyph disappears over a bright illustration. */
+  text-shadow:
+    0 0 3px rgb(0 0 0 / 95%),
+    0 0 8px rgb(0 0 0 / 80%),
+    0 2px 4px rgb(0 0 0 / 90%);
+}
+
+.floating-number.damage { color: #ff6b6b; }
+.floating-number.buff { color: #7ee787; }
+
+/* ── the opponent's play, held up ──────────────────────────────
+   Fixed and centred, over everything, and NEVER interactive: this appears
+   without the player asking, in the middle of the board they are looking at, so
+   a click that lands on it instead of on what is underneath would be the board
+   stealing an input. `pointer-events: none` on the wrapper and on the card. */
+.play-announcer {
+  position: fixed;
+  inset: 0;
+  /* Centred by GRID, never by a transform — framer-motion owns this element's
+     `transform` while it animates, so a centring translate here would be wiped
+     the moment the card moved. */
+  display: grid;
+  place-items: center;
+  /* Sits a little above centre: dead centre is the battlefield row, and the
+     card is meant to be read against the board rather than instead of it. */
+  padding-bottom: 14vh;
+  z-index: 60;
+  pointer-events: none;
+}
+
+.play-announcer-card {
+  /* Scaled rather than given a bigger card size: the card is the one shared size
+     everywhere else on the board (see use-board-card-size), and a second size
+     would be a second thing to keep in step. */
+  scale: 1.55;
+  filter: drop-shadow(0 18px 34px rgb(0 0 0 / 70%));
+}
+
+/* Nothing in here takes a click. It appears without the player asking, over the
+   board they are looking at, so an input landing on it instead of on what is
+   underneath would be the board stealing the click. */
+.play-announcer,
+.play-announcer * {
+  pointer-events: none;
+}
+
 /* ── the game log ──────────────────────────────────────────────────────────
    Fixed rather than in flow, and that is the whole layout decision: the board
    fits the window by measuring itself (use-board-card-size), so a panel that

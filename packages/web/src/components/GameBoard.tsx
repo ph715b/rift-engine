@@ -48,8 +48,9 @@ import {
 import { targetingBlockedReason } from "../unplayable-target-reason.js";
 import { unanimousPlayFields } from "../hidden-play-seed.js";
 import type { GameEvent } from "@rift-engine/engine";
-import { linesFrom, type LogLine } from "../event-log.js";
+import { announcedPlay, linesFrom, unitsThatDied, type LogLine, type PlayAnnouncement } from "../event-log.js";
 import { GameLog } from "./GameLog.js";
+import { PlayAnnouncer } from "./PlayAnnouncer.js";
 import {
   chosenFirstPlayer,
   createNewGame,
@@ -364,6 +365,27 @@ function freshSeries(): SeriesState {
   return { humanGameWins: 0, aiGameWins: 0, gameNumber: 1, humanUsedBattlefields: [], aiUsedBattlefields: [] };
 }
 
+/**
+ * How long a unit stays marked as dying.
+ *
+ * Longer than `DIE`'s 460ms so the exit finishes, short enough that no plausible
+ * sequence recycles an instance id inside it — a later card inheriting the mark
+ * would blow out and tumble on arrival.
+ */
+const DEATH_MARK_MS = 900;
+
+/**
+ * How long the opponent's played card is held up.
+ *
+ * Shorter than `AI_MOVE_DELAY_MS` is NOT enough — the delay is the gap before the
+ * AI's NEXT action, so an announcement lasting longer than it would still be up
+ * when the next card arrives. It is deliberately a little longer anyway: two
+ * quick plays should overlap and REPLACE rather than leave the board blank
+ * between them, which reads as a flicker. The key is the card's instance id, so
+ * a replacement animates as one card giving way to another.
+ */
+const ANNOUNCE_MS = 1100;
+
 /** How many log lines are kept. A long game raises thousands of events and
  *  nobody scrolls back past the last few dozen; the oldest go first. */
 const LOG_LINE_CAP = 200;
@@ -520,6 +542,24 @@ export function GameBoard({ initialConfig, onMainMenu, seed }: GameBoardProps) {
    * where history lives.
    */
   const [aiNarration, setAiNarration] = useState<string | null>(null);
+  /**
+   * **Units that died in the action just resolved**, so their cards can leave the
+   * board dying rather than merely leaving it.
+   *
+   * This is the animation that could not be built before the event stream. Every
+   * departure looks the same to a diff — recalled, bounced to hand, banished,
+   * killed — because all a diff sees is a card that is no longer there. Only
+   * `unitDied` distinguishes them, and a death that reads like a recall is the
+   * difference between "I lost that" and "I moved that".
+   *
+   * Held briefly and then cleared: the flag has to outlive the state change that
+   * removes the card (or `AnimatePresence` would have nothing to animate) but not
+   * outlive the animation, or a later card reusing the id would inherit a death.
+   */
+  const [dyingUnitIds, setDyingUnitIds] = useState<ReadonlySet<string>>(new Set());
+
+  /** The opponent's most recent play, held up briefly. See `PlayAnnouncer`. */
+  const [announcement, setAnnouncement] = useState<PlayAnnouncement | null>(null);
   const nextLogId = useRef(0);
   // A trash pile being browsed (either player's — it's public information).
   // Purely a viewer: it never feeds a pending play, which is why it's its own
@@ -628,9 +668,40 @@ export function GameBoard({ initialConfig, onMainMenu, seed }: GameBoardProps) {
     return fresh;
   }
 
+  /**
+   * Marks the units that died in this action, for `CardView`'s death exit.
+   *
+   * Read off the events rather than the board, because by the time this runs the
+   * cards are already gone from it — which is the whole reason the flag exists.
+   * `DEATH_MARK_MS` is comfortably longer than the exit it drives, and shorter
+   * than any sequence that could recycle an instance id.
+   */
+  function markDeaths(events: readonly GameEvent[]) {
+    const died = unitsThatDied(events);
+    if (died.length === 0) return;
+    setDyingUnitIds(new Set(died));
+    setTimeout(() => setDyingUnitIds(new Set()), DEATH_MARK_MS);
+  }
+
+  /**
+   * Holds up the card the OPPONENT just played.
+   *
+   * Resolved against the post-action state, which is the only board on which the
+   * card can still be found — a Spell is in the trash by now, and a unit is at a
+   * battlefield. Called only from the AI's site: announcing your own play would
+   * hold a card in front of the board you are trying to act on.
+   */
+  function announce(events: readonly GameEvent[], after: GameState) {
+    const play = announcedPlay(events, after, HUMAN_INDEX);
+    if (play === null) return;
+    setAnnouncement(play);
+    setTimeout(() => setAnnouncement((current) => (current === play ? null : current)), ANNOUNCE_MS);
+  }
+
   function applyAction(action: PlayerAction) {
     const next = submit(state, action);
     recordEvents(next);
+    markDeaths(next.events);
     // Whatever the AI last said is history now — you are acting, and the log is
     // where history lives.
     setAiNarration(null);
@@ -672,6 +743,8 @@ export function GameBoard({ initialConfig, onMainMenu, seed }: GameBoardProps) {
       // The AI's turn used to leave no trace at all. Same recorder as the human's,
       // so neither seat can be narrated differently from the other.
       const fresh = recordEvents(next);
+      markDeaths(next.events);
+      announce(next.events, next.state);
       // The NEWEST line, not a joined summary: the actions arrive one at a time
       // and the header should say what is happening now, in step with the board.
       // An action that narrated nothing leaves the previous line up rather than
@@ -2657,6 +2730,7 @@ export function GameBoard({ initialConfig, onMainMenu, seed }: GameBoardProps) {
         {/* The log sits over the board rather than beside it — see GameLog for
             why a new row would shrink every card on screen. */}
         <GameLog lines={logLines} open={logOpen} onToggle={() => setLogOpen((v) => !v)} humanIndex={HUMAN_INDEX} />
+        <PlayAnnouncer announcement={announcement} />
         {/* **The shuffle, so a bug report can carry it.** Every playtest report
             against this board has had to describe the situation in prose and hope
             it could be reconstructed; this is the one number that reproduces the
@@ -2921,6 +2995,7 @@ export function GameBoard({ initialConfig, onMainMenu, seed }: GameBoardProps) {
                 isChainTargeted={chainTargets.battlefields.has(bf.id)}
                 isDragOver={dragOverZoneId === bf.id}
                 isShowdownActive={state.showdownBattlefieldId === bf.id}
+                dyingUnitIds={dyingUnitIds}
                 isUnitTargetable={isUnitLegalTarget}
                 isUnitChainTargeted={(unit) => chainTargets.units.has(unit.instanceId)}
                 isFriendlySelectable={isFriendlyUnitSelectable}

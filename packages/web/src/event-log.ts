@@ -1,4 +1,4 @@
-import { defaultCardRegistry, type GameEvent, type GameState } from "@rift-engine/engine";
+import { defaultCardRegistry, type CardInstance, type GameEvent, type GameState } from "@rift-engine/engine";
 
 /** One line of the log, as the panel renders it. */
 export interface LogLine {
@@ -191,4 +191,89 @@ function actorOf(event: GameEvent, humanIndex: 0 | 1): 0 | 1 | null {
     default:
       return null;
   }
+}
+
+/**
+ * The instance ids of units that DIED in this batch of events.
+ *
+ * **The one thing on this board that only the event stream can answer.** Every
+ * departure looks identical to a diff — recalled, bounced to hand, banished,
+ * killed — because all a diff sees is a card that is no longer there. `unitDied`
+ * is what separates them, and a death that animates like a recall is the
+ * difference between "I lost that" and "I moved that".
+ *
+ * Read off the EVENT rather than the board, because by the time a caller asks,
+ * the cards are gone from it. `DeathContext` carries the whole unit for exactly
+ * this reason — 808.1.d.3 requires its details be noted before it moved.
+ *
+ * Lives here beside `describeEvent` because it is the same job: interpreting the
+ * engine's events for a human-facing surface.
+ */
+export function unitsThatDied(events: readonly GameEvent[]): string[] {
+  return events.filter((e) => e.kind === "unitDied").map((e) => e.death.unit.instanceId);
+}
+
+/** The card an announcement is about, and who played it. */
+export interface PlayAnnouncement {
+  card: CardInstance;
+  casterIndex: 0 | 1;
+}
+
+/**
+ * **The opponent's play, held up so it can be read.**
+ *
+ * The move this borrows from MTG Arena. A card the AI plays currently appears on
+ * the board already resolved — a unit is simply THERE, and a spell is never seen
+ * at all, since it goes straight to the trash. The player is left reconstructing
+ * what happened from what changed, which is the same complaint several of this
+ * project's playtest reports were really making.
+ *
+ * # Only the OPPONENT's
+ *
+ * Announcing your own play would hold up a card you just clicked, in front of the
+ * board you are trying to act on. You already know what you played; you watched it
+ * leave your hand. The opponent's play is the one that arrives with no warning.
+ *
+ * # The LAST one in the batch
+ *
+ * One action can raise several — a play that triggers a cast. The most recent is
+ * the one the board is about to show the consequences of.
+ */
+export function announcedPlay(
+  events: readonly GameEvent[],
+  state: GameState,
+  humanIndex: 0 | 1,
+): PlayAnnouncement | null {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i]!;
+    if (event.kind !== "cardPlayed" && event.kind !== "spellCast") continue;
+    if (event.casterIndex === humanIndex) continue;
+    const instanceId = event.kind === "cardPlayed" ? event.playedInstanceId : event.spellInstanceId;
+    const card = instanceAnywhere(state, instanceId);
+    // **No card, no announcement.** A countered or banished card can be nowhere
+    // by now, and a blank frame in the middle of the board is worse than silence.
+    if (card === undefined) continue;
+    return { card, casterIndex: event.casterIndex };
+  }
+  return null;
+}
+
+/** The instance behind an id, wherever it now is — the same sweep `nameOf` does,
+ *  returning the card itself because an announcement needs its ART. The trash is
+ *  in the search on purpose: a Spell is already there by the time it is
+ *  announced. */
+function instanceAnywhere(state: GameState, instanceId: string | undefined): CardInstance | undefined {
+  if (instanceId === undefined) return undefined;
+  for (const player of state.players) {
+    for (const unit of player.baseUnits) if (unit.instanceId === instanceId) return unit;
+    for (const card of player.hand) if (card.instanceId === instanceId) return card;
+    for (const card of player.trash) if (card.instanceId === instanceId) return card;
+    for (const gear of player.activeGear) if (gear.instanceId === instanceId) return gear;
+  }
+  for (const bf of state.battlefields) {
+    for (const units of Object.values(bf.units)) {
+      for (const unit of units) if (unit.instanceId === instanceId) return unit;
+    }
+  }
+  return undefined;
 }

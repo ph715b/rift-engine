@@ -40,6 +40,10 @@ interface BattlefieldViewProps {
   playableHiddenIds?: Set<string>;
   onPlayHidden?: (cardInstanceId: string, battlefieldId: string) => void;
   isShowdownActive: boolean;
+  /** Units that died in the action just resolved — see `CardView.isDying`. Their
+   *  cards leave the board dying rather than merely leaving it, which a diff
+   *  could never tell apart from a recall. */
+  dyingUnitIds?: ReadonlySet<string>;
   /** Is this unit a legal target for the currently-armed spell (if any)?
    *  Independent of whose unit it is — a targeted spell in this engine can
    *  affect either player's units at a battlefield. */
@@ -81,6 +85,7 @@ export function BattlefieldView({
   playableHiddenIds,
   onPlayHidden,
   isShowdownActive,
+  dyingUnitIds,
   isUnitTargetable,
   isUnitChainTargeted,
   isFriendlySelectable,
@@ -266,6 +271,7 @@ export function BattlefieldView({
               key={unit.instanceId}
               card={unit}
               staggerIndex={aiArrivals.get(unit.instanceId) ?? 0}
+              isDying={dyingUnitIds?.has(unit.instanceId) ?? false}
               isEnemy
               {...(attachmentProps?.(unit) ?? {})}
               isSelectable={isUnitTargetable(unit)}
@@ -288,6 +294,7 @@ export function BattlefieldView({
               key={unit.instanceId}
               card={unit}
               staggerIndex={humanArrivals.get(unit.instanceId) ?? 0}
+              isDying={dyingUnitIds?.has(unit.instanceId) ?? false}
               {...(attachmentProps?.(unit) ?? {})}
               isSelectable={isFriendlySelectable(unit)}
               isTargetable={isUnitTargetable(unit)}
