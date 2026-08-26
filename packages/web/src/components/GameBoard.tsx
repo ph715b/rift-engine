@@ -46,6 +46,7 @@ import {
   type UnitInstance,
 } from "@rift-engine/engine";
 import { targetingBlockedReason } from "../unplayable-target-reason.js";
+import { unanimousPlayFields } from "../hidden-play-seed.js";
 import {
   chosenFirstPlayer,
   createNewGame,
@@ -1510,7 +1511,30 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     const first = candidates[0]!;
     if (first.type !== "PlayCard") return;
     setPendingAbility(null);
-    setPendingPlay({ card: first.card, payment: first.payment, fromHiddenBattlefieldId: battlefieldId });
+    // **Seeded with every field the candidates AGREE on**, not just the three
+    // this used to name.
+    //
+    // Reported from playtesting: Tideturner hidden at a battlefield, a target
+    // chosen at another, and nothing happened. 811.1.d.1 forces a hidden
+    // PERMANENT to the battlefield it was hidden at, so every candidate carries
+    // `destinationBattlefieldId` — and `matchesPending` compares that field with
+    // `?? BASE_ZONE_ID` on both sides, so a seed without it asked "bf1" === "base"
+    // and matched nothing. `pendingLegalAction()` stayed undefined, the
+    // auto-submit never fired, the card sat armed, and Pass Focus then did
+    // exactly what it says.
+    //
+    // A field all candidates share is not a choice, so the seed must carry it; a
+    // field they differ on is precisely what this flow exists to ask about, and
+    // must not be seeded. `unanimousPlayFields` derives that from the candidates
+    // rather than from a list of field names — this file already records six
+    // earlier bugs of the form "a dispatch hop dropped a field", and naming the
+    // one field Tideturner needs would have left the seventh to be found in play.
+    setPendingPlay({
+      ...unanimousPlayFields(candidates.filter((a): a is PlayCardAction => a.type === "PlayCard")),
+      card: first.card,
+      payment: first.payment,
+      fromHiddenBattlefieldId: battlefieldId,
+    });
   }
 
   /** Should one of the human's own units render — and behave — as clickable
