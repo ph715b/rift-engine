@@ -108,6 +108,20 @@ button:disabled {
    data a player reads once when something goes wrong, not part of the game.
    `user-select: all` makes one click select the whole number, which is the
    entire point — it exists to be pasted into a bug report. */
+/* What the AI just did, in the header. Tinted like the opponent's log lines so
+   the two read as one voice, and italic so it is plainly narration rather than
+   a control. */
+.header-ai-narration {
+  font-size: 0.8rem;
+  font-style: italic;
+  color: var(--color-danger);
+  opacity: 0.9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 32ch;
+}
+
 /* ── the game log ──────────────────────────────────────────────────────────
    Fixed rather than in flow, and that is the whole layout decision: the board
    fits the window by measuring itself (use-board-card-size), so a panel that

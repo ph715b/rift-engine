@@ -506,6 +506,20 @@ export function GameBoard({ initialConfig, onMainMenu, seed }: GameBoardProps) {
    */
   const [logLines, setLogLines] = useState<LogLine[]>([]);
   const [logOpen, setLogOpen] = useState(false);
+  /**
+   * **What the AI just did, while it is doing it.**
+   *
+   * The log holds the whole history, but it is closed by default and a player
+   * should not have to open a panel to find out why their unit died. The AI takes
+   * several actions a turn, `AI_MOVE_DELAY_MS` apart, and every one of them was
+   * silent — the board simply changed under you.
+   *
+   * This is the newest line from the AI's turn, shown in the header and replaced
+   * as the turn unfolds, so the sentence and the animation arrive together.
+   * Cleared the moment you act, because by then it is history and the log is
+   * where history lives.
+   */
+  const [aiNarration, setAiNarration] = useState<string | null>(null);
   const nextLogId = useRef(0);
   // A trash pile being browsed (either player's — it's public information).
   // Purely a viewer: it never feeds a pending play, which is why it's its own
@@ -606,16 +620,20 @@ export function GameBoard({ initialConfig, onMainMenu, seed }: GameBoardProps) {
   /** Narrates one action's events onto the log. The state passed is the board the
    *  events PRODUCED, which is what makes a just-arrived card's name resolvable —
    *  see `nameOf` in event-log.ts. */
-  function recordEvents(outcome: { state: GameState; events: readonly GameEvent[] }) {
-    if (outcome.events.length === 0) return;
+  function recordEvents(outcome: { state: GameState; events: readonly GameEvent[] }): LogLine[] {
+    if (outcome.events.length === 0) return [];
     const fresh = linesFrom(outcome.events, outcome.state, HUMAN_INDEX, () => (nextLogId.current += 1));
-    if (fresh.length === 0) return;
+    if (fresh.length === 0) return [];
     setLogLines((prev) => [...prev, ...fresh].slice(-LOG_LINE_CAP));
+    return fresh;
   }
 
   function applyAction(action: PlayerAction) {
     const next = submit(state, action);
     recordEvents(next);
+    // Whatever the AI last said is history now — you are acting, and the log is
+    // where history lives.
+    setAiNarration(null);
     setGame(next);
     setSelectedUnitIds(new Set());
     setPendingPlay(null);
@@ -653,7 +671,13 @@ export function GameBoard({ initialConfig, onMainMenu, seed }: GameBoardProps) {
       const next = submit(state, action);
       // The AI's turn used to leave no trace at all. Same recorder as the human's,
       // so neither seat can be narrated differently from the other.
-      recordEvents(next);
+      const fresh = recordEvents(next);
+      // The NEWEST line, not a joined summary: the actions arrive one at a time
+      // and the header should say what is happening now, in step with the board.
+      // An action that narrated nothing leaves the previous line up rather than
+      // blanking — a flicker to empty and back reads as a glitch.
+      const latest = fresh.at(-1);
+      if (latest) setAiNarration(latest.text);
       setGame(next);
     }, AI_MOVE_DELAY_MS);
     return () => clearTimeout(timer);
@@ -2622,6 +2646,12 @@ export function GameBoard({ initialConfig, onMainMenu, seed }: GameBoardProps) {
             Playwright drivers, and there's no reason to move it. */}
         {seriesNote && <span className="header-series">{seriesNote}</span>}
         {exitControls}
+        {/* **What the AI just did.** Suppressed while a refusal is showing: that
+            is about something YOU tried and is the more urgent of the two, and two
+            messages competing for one header row reads as neither. */}
+        {aiNarration !== null && unplayableNotice === null && (
+          <span className="header-ai-narration">{aiNarration}</span>
+        )}
         {unplayableNotice && <span className="header-notice">{unplayableNotice}</span>}
 
         {/* The log sits over the board rather than beside it — see GameLog for
