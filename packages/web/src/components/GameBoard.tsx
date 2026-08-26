@@ -2866,18 +2866,13 @@ export function GameBoard({ initialConfig, onMainMenu, seed }: GameBoardProps) {
           />
         </div>
 
-        {/* **The chain DISPLACES rather than covers.** `.chain-rail` is an overlay
-            300px wide over the left of this column, and the left battlefield lives
-            under it — so a trigger firing during a combat at that battlefield hid
-            the cards being fought over, at the exact moment they mattered most.
-
-            Width is the right dimension to spend and height is not: every card on
-            this board is sized from the SHORTEST ROW (use-board-card-size), so a
-            horizontal inset costs no card size at all, while a fourth vertical band
-            has clipped this board before. `.battlefields` is a grid of equal
-            fractions and the hand absorbs width through use-row-fit, so both simply
-            narrow. */}
-        <div className={`board-center${chainRailOpen ? " chain-inset" : ""}`}>
+        {/* **The board does not move for the chain.** An earlier version inset this
+            column so the rail displaced the battlefields rather than covering them.
+            It worked, and it was the wrong trade: the board shifted every time a
+            trigger fired, and a board that jumps is worse than one briefly covered.
+            The rail grows DOWN from the top of the column instead, spending the
+            cheapest pixels first — see `.chain-rail` in styles.css. */}
+        <div className="board-center">
           {/* Absolutely positioned inside this column and mounted only while
               there's something to show, so it adds no row and can't push the
               fixed-height board into overflow. Nothing on the board is

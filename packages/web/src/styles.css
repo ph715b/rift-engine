@@ -301,39 +301,11 @@ button:disabled {
   position: relative;
 }
 
-/* **The width the chain rail occupies.** One value, used by the panel and by the
-   inset that makes room for it — if they could drift, the board would be inset by
-   one amount and covered by a panel of another. */
+/* **The width the chain rail occupies.** One value, used by the panel and by
+   anything that has to reason about the space it takes — if they could drift, the
+   two would disagree about where the chain is. */
 :root {
-  --chain-rail-w: min(272px, 26vw);
-}
-
-/* The chain DISPLACES the column rather than covering it. The rail is an overlay
-   over the left of this column and the left battlefield lives under it, so a
-   trigger during a combat there hid the cards being fought over at the moment they
-   mattered most.
-
-   Width is the dimension to spend: every card here is sized from the SHORTEST ROW
-   (use-board-card-size), so a horizontal inset costs no card size at all — while a
-   fourth vertical band has clipped this board before. The rail itself is unmoved,
-   because an absolutely positioned child resolves `left: 0` against the PADDING
-   box: the panel sits in the gap this opens rather than beside it. */
-.board-center.chain-inset {
-  padding-left: calc(var(--chain-rail-w) + 0.6rem);
-}
-
-.board-center {
-  /* Transitioned rather than snapped, and on the PARENT rather than per card:
-     the cards carry framer `layout` springs, so an instant inset would have them
-     springing while the zone boxes around them jumped. One transition moves the
-     whole column together. */
-  transition: padding-left 0.22s ease;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .board-center {
-    transition: none;
-  }
+  --chain-rail-w: min(240px, 24vw);
 }
 
 .zone {
@@ -3263,7 +3235,28 @@ button:disabled {
   z-index: 80;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  /*
+   * **START, not centre — this single line is the fix for "the chain covers the
+   * battlefield it is telling me about".**
+   *
+   * The bands in this column are, top to bottom: the AI's hand backs (a fixed
+   * 22-44px strip carrying no information but a count), the AI's base row
+   * (flex 1), the battlefields (flex 1.7) and your base row (flex 1). Centring
+   * put the panel's middle at the column's middle — which lands inside the
+   * battlefields band, the most expensive pixels on the board, and exactly where
+   * a combat is being fought when a trigger fires.
+   *
+   * Growing DOWN from the top spends the cheapest pixels first: the hand-back
+   * strip, then the AI's base. A one- or two-item chain — which is nearly all of
+   * them — never reaches the battlefields at all.
+   *
+   * The alternative was insetting the column so the chain displaced the board
+   * rather than covering it. That worked, and it was rejected: the board moved
+   * every time a trigger fired, and a board that jumps is worse than one that is
+   * briefly covered.
+   */
+  justify-content: flex-start;
+  padding-top: 0.2rem;
   /* Off on the rail, back on for each item (below): the empty space around the
      panel must never swallow a board click. */
   pointer-events: none;
@@ -3274,12 +3267,32 @@ button:disabled {
   flex-direction: column;
   gap: 0.4rem;
   width: var(--chain-rail-w);
-  max-height: 100%;
+  /*
+   * **Bounded, so a deep chain cannot swallow the column.** `100%` let it span
+   * top to bottom, and chains here genuinely get deep — the `chain-depth` probe
+   * has measured over a hundred items on one. Capped and top-anchored, the worst
+   * case reaches the top of the battlefields and stops; your own base row and your
+   * hand are never covered at all. Past the cap it scrolls, which is the right
+   * trade: a chain that long is being read rather than glanced at.
+   */
+  max-height: min(100%, 56dvh);
   overflow-y: auto;
   padding: 0.55rem 0.7rem;
   border: 1px solid var(--color-chain);
   border-radius: 10px;
-  background: color-mix(in srgb, var(--color-chain) 8%, var(--color-bg-elevated));
+  /*
+   * The CHROME is see-through; the items inside it are not. That split is the
+   * part of MTG Arena's stack worth copying — there the cards are solid and the
+   * space around them is not, so the board stays legible around what is being
+   * announced. Making the items translucent too would only trade one unreadable
+   * thing for another.
+   */
+  background: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--color-chain) 8%, var(--color-bg-elevated)) 78%,
+    transparent
+  );
+  backdrop-filter: blur(7px);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
 }
 

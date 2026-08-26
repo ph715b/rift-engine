@@ -172,28 +172,26 @@ describe("hovering one item narrows the board to that item", () => {
   });
 });
 
-describe("the rail's width and the room made for it cannot drift apart", () => {
+describe("the chain stays OFF the battlefields without moving the board", () => {
   /**
-   * **The bug this pins is silent and was the original complaint.** The chain is
-   * an overlay over the left of the centre column, and the left battlefield lives
-   * under it — so a trigger firing during a combat there hid the cards being
-   * fought over, at the moment they mattered most. The fix insets the column by
-   * the rail's width instead of covering it.
+   * **Reported from play:** a trigger firing during a combat at the left
+   * battlefield hid the cards being fought over, at the moment they mattered most.
    *
-   * Two numbers now have to agree: how wide the panel is, and how much room is
-   * reserved. If they drift, the board is either inset with no panel in the gap
-   * or covered by a panel with no gap — and neither shows up in a type error, a
-   * render test, or jsdom, which applies no stylesheet at all. Naming one custom
-   * property in both places is what makes them unable to disagree, so THAT is
-   * what is asserted.
+   * The first fix inset the column so the rail displaced the board rather than
+   * covering it. It worked and it was the wrong trade — the board shifted every
+   * time a trigger fired. The board must not move; the rail must stay off the
+   * battlefields instead.
    *
-   * It reads the stylesheet as text deliberately. There is no computed style to
-   * ask: this suite renders into jsdom, which never loads `styles.css`.
+   * Two lines do that, and both fail silently. `justify-content` decides which
+   * band the panel grows out of: centred, its middle lands in the battlefields,
+   * because they carry `flex: 1.7` against `1` for each base row and so straddle
+   * the column's midpoint. Top-anchored, it grows down through the AI's hand-back
+   * strip and base row first. `max-height` decides how far it can get.
+   *
+   * Asserted against the stylesheet as TEXT because there is nothing else to ask:
+   * this suite renders into jsdom, which applies no stylesheet at all, so there is
+   * no computed style and no layout. A render test would pass with either value.
    */
-  // Located from the working directory rather than from `import.meta.url`: under
-  // this suite's transform that URL is not a `file:` one, and `fileURLToPath`
-  // throws on it. The two candidates cover being run from the package and from
-  // the repo root, which the root `npm test` does.
   const stylesheet = ["src/styles.css", "packages/web/src/styles.css"]
     .map((candidate) => resolve(process.cwd(), candidate))
     .find((candidate) => existsSync(candidate));
@@ -203,26 +201,44 @@ describe("the rail's width and the room made for it cannot drift apart", () => {
   const ruleBody = (selector: string): string => {
     const at = css.indexOf(selector + " {");
     expect(at, `${selector} is not in the stylesheet at all`).toBeGreaterThan(-1);
-    return css.slice(at, css.indexOf("}", at));
+    // To the closing brace at the START of a line: a rule body here contains
+    // block comments with braces of their own, and the first `}` after the
+    // selector is often inside one.
+    const close = css.indexOf("\n}", at);
+    expect(close, `${selector} is never closed`).toBeGreaterThan(at);
+    return css.slice(at, close);
   };
 
-  it("sizes the panel from the shared variable", () => {
+  it("grows from the TOP of the column, not from its middle", () => {
+    const rail = ruleBody(".chain-rail");
+    expect(rail, "the rail centres itself again — its middle lands in the battlefields").toContain(
+      "justify-content: flex-start;",
+    );
+    expect(rail, "the rail is centred").not.toContain("justify-content: center;");
+  });
+
+  it("is bounded, so a deep chain cannot span the whole column", () => {
+    // Chains here get deep — `chain-depth` has measured over a hundred items on
+    // one — and an unbounded panel reaches your own base row and hand.
+    const panel = ruleBody(".chain-panel");
+    expect(panel, "the panel has no height cap").toMatch(/max-height:\s*min\(/);
+    expect(panel, "an unbounded panel is back").not.toMatch(/max-height:\s*100%;/);
+    expect(panel, "a chain past the cap has no way to be read").toContain("overflow-y: auto;");
+  });
+
+  it("never insets the board, because the board must not move", () => {
+    // The rejected fix. A rule that pushes the column aside is exactly what this
+    // is here to keep out — it is easy to reintroduce and looks like an
+    // improvement in isolation.
+    expect(css, "the chain insets the column again — the board will jump").not.toContain(".chain-inset");
+  });
+
+  it("sizes the panel from the shared variable, defined once", () => {
+    // Two definitions is how a width drifts: one gets updated and the other does
+    // not, and then the chain is two different sizes depending on who is asking.
     expect(ruleBody(".chain-panel"), "the panel has its own hardcoded width again").toContain(
       "var(--chain-rail-w)",
     );
-  });
-
-  it("reserves the same variable's width on the column", () => {
-    const inset = ruleBody(".board-center.chain-inset");
-    expect(inset, "the inset is not derived from the rail width").toContain("var(--chain-rail-w)");
-    expect(inset, "the inset is not a horizontal one — height is the scarce dimension here").toContain(
-      "padding-left",
-    );
-  });
-
-  it("defines that variable exactly once", () => {
-    // Two definitions is how they drift: one gets updated and the other does not.
-    const definitions = css.match(/--chain-rail-w:/g) ?? [];
-    expect(definitions.length, "--chain-rail-w is defined more than once").toBe(1);
+    expect((css.match(/--chain-rail-w:/g) ?? []).length, "--chain-rail-w is defined more than once").toBe(1);
   });
 });
