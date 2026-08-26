@@ -18,6 +18,27 @@ export interface DecklistTextImportResult {
 const SECTION_KEYS = new Set(["legend", "champion", "maindeck", "battlefields", "runes", "sideboard"]);
 type SectionKey = "legend" | "champion" | "maindeck" | "battlefields" | "runes" | "sideboard";
 
+/**
+ * What other exporters call the same sections, folded the same way headers are
+ * (whitespace stripped, lowercased).
+ *
+ * **"Rune Pool" is the one that was reported**: a list using it had its rune
+ * section ignored entirely, so the deck imported with the 6/6 default split
+ * rather than the one it named — and, worse, every line under it leaked into
+ * whichever section was open before.
+ *
+ * Kept as an explicit table rather than fuzzy matching. A header this parser
+ * guesses at wrongly puts cards in the wrong section, which is harder to notice
+ * than a section it skips.
+ */
+const SECTION_ALIASES: Record<string, SectionKey> = {
+  runepool: "runes",
+  runedeck: "runes",
+  maindeckcards: "maindeck",
+  deck: "maindeck",
+  side: "sideboard",
+};
+
 function normalizeHeader(line: string): SectionKey | null {
   const key = line
     .trim()
@@ -32,6 +53,8 @@ function normalizeHeader(line: string): SectionKey | null {
     .replace(/\s+/g, "")
     .toLowerCase();
   if (SECTION_KEYS.has(key)) return key as SectionKey;
+  const alias = SECTION_ALIASES[key];
+  if (alias) return alias;
   // **Singular headers.** "Battlefield:" and "Rune:" are both in the wild, and a
   // header this parser does not recognise is not an error it can see: the
   // section simply never opens, its lines are skipped as orphans, and the deck
@@ -124,6 +147,23 @@ export function parseDecklistText(text: string, registry: CardRegistry): Decklis
     const header = normalizeHeader(line);
     if (header) {
       current = header;
+      continue;
+    }
+    // **A line ending in a colon is a HEADER, recognised or not — so it closes
+    // the open section instead of falling through as data.**
+    //
+    // Reported from playtesting: a list with a `Rune Pool:` header (unrecognised
+    // at the time) produced "Couldn't find these in the card pool: Rune Pool:,
+    // Fury Rune x6, Body Rune x6". The header itself and everything under it had
+    // leaked into the still-open BATTLEFIELDS section, because `current` was
+    // never cleared.
+    //
+    // The alias above fixes that particular header; this fixes the CLASS. An
+    // unknown section is now skipped cleanly rather than emptied into whichever
+    // section happened to precede it — and no card in this pool has a name
+    // ending in a colon, so nothing legitimate is lost.
+    if (line.endsWith(":")) {
+      current = null;
       continue;
     }
     if (!current) continue;
