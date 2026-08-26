@@ -104,6 +104,20 @@ button:disabled {
 /* Why the card you just clicked can't be played. Takes its own full-width
    line (hence the header's flex-wrap) rather than competing with the
    turn/phase text for the same row — it's a sentence, not a label. */
+/* The game's shuffle seed, in the header. Dim and monospace: it is reference
+   data a player reads once when something goes wrong, not part of the game.
+   `user-select: all` makes one click select the whole number, which is the
+   entire point — it exists to be pasted into a bug report. */
+.header-seed {
+  margin-left: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.7rem;
+  color: var(--color-text-dim);
+  opacity: 0.65;
+  user-select: all;
+  white-space: nowrap;
+}
+
 .header-notice {
   flex: 1 0 100%;
   margin-top: 0.3rem;

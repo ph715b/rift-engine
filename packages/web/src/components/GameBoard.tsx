@@ -364,9 +364,27 @@ function freshSeries(): SeriesState {
 interface GameBoardProps {
   initialConfig: MatchConfig;
   onMainMenu: () => void;
+  /**
+   * The shuffle for the FIRST game of the match. Defaults to `Date.now()`, which
+   * is what it always was — passing one makes the game reproducible.
+   *
+   * **A game you cannot reproduce is a game you cannot report a bug against.**
+   * Every playtest report against this board so far has had to describe the
+   * situation in prose and hope it could be reconstructed; with a seed the same
+   * opening is one paste away. The seed is shown on the board for that reason.
+   *
+   * It also makes the board TESTABLE. Nothing in `packages/web` could drive
+   * `GameBoard` to a state where a card was playable, because there was no way to
+   * ask for a particular deal — every test that tried ended up asserting against
+   * a board it had not reached. See `armed-card-stuck-notice.test.tsx`, whose
+   * first version was vacuous for exactly that reason.
+   *
+   * Later games in a Bo3 seed themselves; see `resetForNewGame`.
+   */
+  seed?: number;
 }
 
-export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
+export function GameBoard({ initialConfig, onMainMenu, seed }: GameBoardProps) {
   const [config, setConfig] = useState(initialConfig);
   // SPECTATE — the AI drives BOTH seats and nothing on the board is clickable.
   // Read off the config rather than held as its own state: it is a property of
@@ -415,10 +433,20 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   const [pregame, setPregame] = useState<PregameStep>(
     initialConfig.format === "bo3" && initialConfig.spectate !== true ? "selectBattlefield" : "mulligan",
   );
-  // The seed for the CURRENT game, held rather than re-derived so a Best of 3's
-  // battlefield choice can rebuild this game's state (with the chosen
-  // battlefields) off the same shuffle the roll used.
-  const [gameSeed, setGameSeed] = useState(() => Date.now());
+  /**
+   * The seed for the CURRENT game, held rather than re-derived so a Best of 3's
+   * battlefield choice can rebuild this game's state (with the chosen
+   * battlefields) off the same shuffle the roll used.
+   *
+   * **That claim used to be false.** This called `Date.now()` and the initial
+   * `createNewGame` below called it AGAIN, so the held seed was a different
+   * number from the one the game was actually built with — milliseconds apart,
+   * which is to say a completely different shuffle. In a Bo3 the battlefield
+   * chooser then rebuilt the game from a seed that had never dealt anything.
+   * `resetForNewGame` had always threaded ONE seed through both; only the mount
+   * was inconsistent.
+   */
+  const [gameSeed, setGameSeed] = useState(() => seed ?? Date.now());
   // Hands are dealt but the human hasn't confirmed a mulligan yet. Deliberately
   // kept NON-NULL for the whole pregame, including the battlefield step: every
   // derivation below this line reads `state`, so a null here would have to
@@ -428,7 +456,9 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   // pregame sequence (deal hands -> mulligan -> begin first turn), see
   // execute-mulligan.ts.
   const [pregameState, setPregameState] = useState<GameState | null>(() =>
-    dealOpeningHands(createNewGame(initialConfig, Date.now())),
+    // The SAME seed the line above holds — see its note for what having two of
+    // them cost.
+    dealOpeningHands(createNewGame(initialConfig, gameSeed)),
   );
   const [game, setGame] = useState<{ state: GameState; result: SubmitResult } | null>(null);
   const { state, result } = game ?? { state: pregameState!, result: { type: "Ok" } };
@@ -1148,7 +1178,6 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
    *  same way throughout (with BASE_ZONE_ID standing in for "no
    *  destination," per PendingPlay's doc comment). */
   function matchesPending(a: PlayCardAction, pending: PendingPlay): boolean {
-    return false; // MUT_S1 nothing ever matches — the Tideturner shape
     // Symmetric slots compare as an unordered set, and EXACTLY — unlike
     // pendingCandidates' subset test, since by this point targeting is settled
     // and a one-target choice must not resolve to a two-target candidate.
@@ -2522,6 +2551,16 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
         {seriesNote && <span className="header-series">{seriesNote}</span>}
         {exitControls}
         {unplayableNotice && <span className="header-notice">{unplayableNotice}</span>}
+        {/* **The shuffle, so a bug report can carry it.** Every playtest report
+            against this board has had to describe the situation in prose and hope
+            it could be reconstructed; this is the one number that reproduces the
+            whole deal. `user-select: all` so a single click takes it.
+
+            Shown rather than tucked behind a menu because it costs one dim
+            monospace field and the alternative is remembering it exists. */}
+        <span className="header-seed" title="This game's shuffle. Quote it in a bug report to reproduce the exact deal.">
+          seed {gameSeed}
+        </span>
       </div>
 
       {isGameOver &&

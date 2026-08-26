@@ -21,39 +21,31 @@ import type { MatchConfig } from "../src/game-setup.js";
  * seat: click the card, click the target, press Pass Focus, and the board does
  * nothing whatsoever. It cost a bug report and a debugging session.
  *
- * # What this file does NOT cover, and why that is stated rather than hidden
+ * # Measured, not argued — THREE mutants, and only one dies
  *
- * **The positive case — the message actually appearing — is not tested here.**
- * Reaching the stuck state through the rendered board needs a bug to be present,
- * and the bug that produced it is fixed.
+ * | mutant | result |
+ * |---|---|
+ * | `matchesPending` always false — the exact Tideturner shape | **KILLED** |
+ * | the notice fires unconditionally | survives |
+ * | the notice never fires at all | survives |
  *
- * A first version of this file tried anyway, with three tests that armed a card
- * and clicked through a turn. **All three were vacuous**, and a mutation caught
- * it: with `matchesPending` forced to return `false` — the exact Tideturner shape
- * — every test still passed. The board renders four hand cards on a fresh game
- * and *none of them is selectable*, so `if (!playable) return` skipped the body
- * every time. They were asserting nothing at all.
+ * **The first is the one worth having**, and it is the one this file could not
+ * catch until `GameBoard` took a `seed`. Before that the board seeded itself with
+ * `Date.now()`, no test could ask for a deal containing a playable card, and an
+ * earlier version of this file armed nothing and asserted nothing — it passed
+ * with `matchesPending` returning false, which is the bug it was written for.
  *
- * Driving the board to a playable state is not currently possible from a test:
- * `GameBoard` seeds its own game with `Date.now()`, so there is no reproducible
- * opening board to search for one. That is worth fixing on its own account — a
- * game you cannot reproduce is a game you cannot report a bug against — but it is
- * a different change from this one.
+ * **The other two survive, and that is stated rather than glossed.** Firing
+ * unconditionally is unreachable here because a one-candidate play resolves the
+ * instant it is armed, so the branch that would cry wolf never runs; catching it
+ * needs a card that stays mid-choice. And nothing asserts the message APPEARS,
+ * because reaching a genuinely stuck board requires a bug to be present and the
+ * one that produced it is fixed — `hidden-play-seed.test.ts` guards that
+ * indirectly, with a mutant that reintroduces it.
  *
- * **Measured, not assumed — two mutants, and only one dies.** Breaking the hand
- * selector back to `.hand-fan` (the original mistake) IS caught, so this file can
- * no longer silently measure nothing. Forcing the notice to fire unconditionally
- * is NOT caught, because nothing on a fresh board is armable for it to fire
- * against. That second result is the limitation above, confirmed rather than
- * argued: **the cry-wolf guard here is real only for the states a fresh board can
- * reach**, and a playable-state harness is what would extend it.
- *
- * So what is left is the half that IS real and IS worth guarding: **the notice
- * must not cry wolf.** A message that appears during an ordinary turn would be
- * worse than no message, because it would train the player to ignore the one case
- * it exists for. The stuck branch itself is guarded indirectly by
- * `hidden-play-seed.test.ts`, whose mutant reintroduces the precise bug this
- * message describes.
+ * So: this file pins the regression shape and the no-false-positive rule. It does
+ * not pin the message's own existence. Both halves are true and only one of them
+ * used to be.
  */
 
 const [first, second] = allPresetDecks();
@@ -65,8 +57,19 @@ const config: MatchConfig = {
 
 afterEach(cleanup);
 
+/**
+ * A seed whose opening hand actually contains a playable card.
+ *
+ * **Found by search, and only possible since `GameBoard` took a `seed` prop.**
+ * Before that the board seeded itself with `Date.now()`, so no test could ask for
+ * a particular deal — which is precisely why this file's first version armed
+ * nothing and asserted nothing. Seed 5 deals a five-card hand with two
+ * selectable; seeds 4, 9, 11 and 12 also work if this one ever stops.
+ */
+const SEED_WITH_A_PLAYABLE_CARD = 5;
+
 /** The board, past the mulligan it opens on. */
-function boardInPlay(): HTMLElement {
+function boardInPlay(seed = SEED_WITH_A_PLAYABLE_CARD): HTMLElement {
   // Both providers `App` supplies: `CardView` calls `useCardHover` and
   // `useDragGhost`, which throw without them. Rendering GameBoard bare fails as a
   // component error, which reads as "the board is broken" rather than as "the
@@ -74,7 +77,7 @@ function boardInPlay(): HTMLElement {
   const { container } = render(
     <HoverPreviewProvider>
       <DragGhostProvider>
-        <GameBoard initialConfig={config} onMainMenu={() => {}} />
+        <GameBoard initialConfig={config} onMainMenu={() => {}} seed={seed} />
       </DragGhostProvider>
     </HoverPreviewProvider>,
   );
@@ -111,16 +114,46 @@ describe("the board this file is querying really is there", () => {
 
 describe("the notice does not cry wolf", () => {
   it("says nothing on a freshly live board", () => {
-    // Nothing is armed, so nothing could have failed to resolve. This is the one
-    // assertion the fresh board can genuinely make — and a false positive here
-    // would greet every player with a warning on turn one.
+    // Nothing is armed, so nothing could have failed to resolve. A false
+    // positive here would greet every player with a warning on turn one.
     expect(notice(boardInPlay()), "the board greeted the player with a warning").toBeNull();
   });
 
+  it("says nothing while a card is ARMED and still asking", () => {
+    /**
+     * **The case the first version of this file could not reach.** Mid-choice is
+     * the ordinary reason nothing resolves yet, and it is indistinguishable from
+     * stuck if the guard reads only "no resolved action" — `pendingStep()` is
+     * what separates them.
+     *
+     * The control below is load-bearing: without it a hand with nothing
+     * selectable would satisfy this test by arming nothing at all, which is
+     * exactly how the vacuous version passed.
+     */
+    const container = boardInPlay();
+    const playable = container.querySelector<HTMLElement>(".hand-fan-layer .card.selectable");
+    expect(playable, "no playable card in this seed's opening hand — the seed has drifted").not.toBeNull();
+
+    fireEvent.click(playable!);
+    expect(notice(container), "arming a card warned the player before they chose anything").toBeNull();
+  });
+
+  it("says nothing after arming and then clicking a legal target", () => {
+    // One step further in: a choice made, still not submitted. The effect that
+    // raises the notice runs on every `legal` change, so this exercises it with a
+     // half-built play on screen — the state the message must stay quiet through.
+    const container = boardInPlay();
+    const playable = container.querySelector<HTMLElement>(".hand-fan-layer .card.selectable");
+    expect(playable, "no playable card in this seed's opening hand").not.toBeNull();
+    fireEvent.click(playable!);
+
+    const target = container.querySelector<HTMLElement>(".battlefield.targetable, .card.targetable");
+    if (target) fireEvent.click(target);
+
+    expect(notice(container), "a half-built play produced a spurious warning").toBeNull();
+  });
+
   it("says nothing after passing the turn", () => {
-    // Passing runs the AI's turn and returns priority, which is the most state
-    // churn reachable from here without a playable card. The effect that raises
-    // the notice runs on every `legal` change, so this exercises it repeatedly.
     const container = boardInPlay();
     const pass = [...container.querySelectorAll<HTMLButtonElement>("button")].find((b) =>
       /^pass/i.test(b.textContent ?? ""),
