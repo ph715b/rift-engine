@@ -1030,9 +1030,60 @@ button:disabled {
   background: color-mix(in srgb, var(--color-accent) 12%, var(--color-bg-elevated));
 }
 
+/* A Showdown is the most dramatic thing that happens on this board, and it used
+   to arrive as a static red border with no transition at all — the same visual
+   weight as a hover state, appearing instantly.
+
+   Two animations, in one declaration:
+
+   - `showdown-ignite` runs ONCE, when the class arrives. A CSS animation restarts
+     whenever it is applied to an element, so "a showdown just opened" needs no
+     JS and no state diff — the class IS the event. That is the one place on this
+     board where an event is available for free, and it is worth using.
+   - `showdown-pulse` then runs forever, slowly and at low amplitude. A contested
+     battlefield should draw the eye back while it is unresolved; 2.4s is slow
+     enough to read as a heartbeat rather than as an alert, which matters because
+     it can be on screen for many turns.
+
+   The delay on the second is exactly the first's duration, so they hand over
+   rather than fighting over `box-shadow`. */
 .battlefield.showdown {
   border-color: var(--color-danger);
   box-shadow: 0 0 0 1px var(--color-danger);
+  animation:
+    showdown-ignite 0.7s ease-out,
+    showdown-pulse 2.4s ease-in-out 0.7s infinite;
+}
+
+@keyframes showdown-ignite {
+  0% {
+    box-shadow: 0 0 0 1px var(--color-danger);
+  }
+  35% {
+    box-shadow:
+      0 0 0 3px var(--color-danger),
+      0 0 34px 10px color-mix(in srgb, var(--color-danger) 55%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 1px var(--color-danger);
+  }
+}
+
+@keyframes showdown-pulse {
+  50% {
+    box-shadow:
+      0 0 0 1px var(--color-danger),
+      0 0 18px 4px color-mix(in srgb, var(--color-danger) 26%, transparent);
+  }
+}
+
+/* The ignition is a flourish; the border is the information. Reduced motion
+   keeps the border and drops both animations, so a showdown is still
+   unmistakable without anything moving. */
+@media (prefers-reduced-motion: reduce) {
+  .battlefield.showdown {
+    animation: none;
+  }
 }
 
 .battlefield.showdown .battlefield-name span:last-child {

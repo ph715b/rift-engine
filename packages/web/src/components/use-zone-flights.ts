@@ -40,6 +40,31 @@ export interface ZoneFlight {
    *  tinted for public ones — a card going to the trash is information, a card
    *  coming off the deck is not. */
   hidden: boolean;
+  /**
+   * How long THIS flight takes, in ms — scaled by the distance it covers.
+   *
+   * Every flight used to take `FLIGHT_MS` regardless, so a short hop from the
+   * deck to the hand beside it and a long throw across the board to the trash
+   * moved at wildly different speeds to cover wildly different distances in the
+   * same time. Two objects on one table cannot have two different physics.
+   *
+   * Scaled rather than made constant-SPEED: true constant speed makes a
+   * cross-board flight take long enough to gate the next click, which is the
+   * failure `FLIGHT_MS`' own note warns about. The square root is the usual
+   * compromise — longer trips take longer, but sub-linearly.
+   */
+  ms: number;
+  /**
+   * Peak height of the arc, in px, perpendicular to the path.
+   *
+   * A card slid across a table travels in a straight line; a card THROWN lifts.
+   * These are throws — a discard, a draw — and a dead-straight interpolation is
+   * the single thing that most reads as "an element was tweened between two
+   * rectangles" rather than as an object moving.
+   *
+   * Proportional to distance and capped, so a short hop stays nearly flat.
+   */
+  lift: number;
 }
 
 /** The zone sizes a flight can be inferred from. */
@@ -58,8 +83,35 @@ export interface ZoneCounts {
 const MAX_PER_EVENT = 1;
 
 /** Long enough to follow with the eye, short enough not to gate the next click.
- *  Roughly the chain-resolution beat, so the board keeps one rhythm. */
+ *  Roughly the chain-resolution beat, so the board keeps one rhythm.
+ *
+ *  **Now the CEILING rather than the duration of every flight** — see
+ *  `ZoneFlight.ms`. Still what the cleanup timer waits on, so the longest
+ *  possible flight is always cleared. */
 export const FLIGHT_MS = 460;
+
+/** The shortest a flight may be, however close its endpoints. Below this a
+ *  flight reads as a flicker rather than as a card going somewhere. */
+const FLIGHT_MIN_MS = 240;
+
+/** The distance, in px, at which a flight takes the full `FLIGHT_MS`. Roughly a
+ *  board's width — the longest trip anything actually makes. */
+const FLIGHT_FULL_DISTANCE = 900;
+
+/** Arc height as a fraction of distance travelled, and its ceiling in px. A
+ *  gentle lift; enough to read as a throw, not enough to look like a lob. */
+const LIFT_RATIO = 0.16;
+const LIFT_MAX = 90;
+
+/** The duration and arc for one flight, from the distance it covers. */
+function flightShape(from: { x: number; y: number }, to: { x: number; y: number }): { ms: number; lift: number } {
+  const distance = Math.hypot(to.x - from.x, to.y - from.y);
+  const t = Math.min(1, Math.sqrt(distance / FLIGHT_FULL_DISTANCE));
+  return {
+    ms: Math.round(FLIGHT_MIN_MS + (FLIGHT_MS - FLIGHT_MIN_MS) * t),
+    lift: Math.min(LIFT_MAX, distance * LIFT_RATIO),
+  };
+}
 
 function anchorPoint(anchor: FlightAnchor): { x: number; y: number } | null {
   const el =
@@ -122,7 +174,15 @@ export function useZoneFlights(counts: ZoneCounts) {
       if (!from || !to) continue;
       for (let i = 0; i < Math.min(e.n, MAX_PER_EVENT); i++) {
         nextId.current += 1;
-        added.push({ id: nextId.current, from, to, fromAnchor: e.from, toAnchor: e.to, hidden: e.hidden });
+        added.push({
+          id: nextId.current,
+          from,
+          to,
+          fromAnchor: e.from,
+          toAnchor: e.to,
+          hidden: e.hidden,
+          ...flightShape(from, to),
+        });
       }
     }
     if (added.length === 0) return;

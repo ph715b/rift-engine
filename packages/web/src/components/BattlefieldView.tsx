@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import { CardView, type DragPoint } from "./CardView.js";
 import { useRowFit } from "./use-row-fit.js";
+import { useArrivalOrder } from "./use-arrival-order.js";
 import { battlefieldCard } from "../battlefield-cards.js";
 import { useCardHover } from "../hover-preview.js";
 import { defaultCardRegistry } from "@rift-engine/engine";
@@ -93,6 +94,12 @@ export function BattlefieldView({
   const setHovered = useCardHover();
   const humanUnits = battlefield.units[human.id] ?? [];
   const aiUnits = battlefield.units[ai.id] ?? [];
+
+  // Arrival cascade for 144.3's simultaneous moves — see use-arrival-order.ts.
+  // Per SIDE, so your three units marching in do not have their timing offset
+  // by however many of the opponent's happen to be standing there.
+  const humanArrivals = useArrivalOrder(humanUnits.map((u) => u.instanceId));
+  const aiArrivals = useArrivalOrder(aiUnits.map((u) => u.instanceId));
   const controllerName =
     battlefield.controllerId === human.id ? "You" : battlefield.controllerId === ai.id ? "AI" : "Uncontrolled";
 
@@ -258,6 +265,7 @@ export function BattlefieldView({
             <CardView
               key={unit.instanceId}
               card={unit}
+              staggerIndex={aiArrivals.get(unit.instanceId) ?? 0}
               isEnemy
               {...(attachmentProps?.(unit) ?? {})}
               isSelectable={isUnitTargetable(unit)}
@@ -279,6 +287,7 @@ export function BattlefieldView({
             <CardView
               key={unit.instanceId}
               card={unit}
+              staggerIndex={humanArrivals.get(unit.instanceId) ?? 0}
               {...(attachmentProps?.(unit) ?? {})}
               isSelectable={isFriendlySelectable(unit)}
               isTargetable={isUnitTargetable(unit)}

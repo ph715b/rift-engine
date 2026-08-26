@@ -1,5 +1,6 @@
 import { useMemo, useState, useSyncExternalStore } from "react";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
+import { ARRIVE, DEPART, INSTANT, READOUT, TAP, TRAVEL, staggerDelay } from "../motion.js";
 import { defaultCardRegistry, loadTokenArt, type CardInstance } from "@rift-engine/engine";
 import { DOMAIN_COLORS } from "../domain-colors.js";
 import { useCardHover } from "../hover-preview.js";
@@ -106,6 +107,10 @@ interface CardViewProps {
    *  different number than the engine. Absent for a card with no board context
    *  (hand, champion zone), where the printed Might IS the answer. */
   currentMight?: number;
+  /** Position in a group that is moving together, for the arrival cascade — see
+   *  `staggerDelay`. Omitted for a card moving alone, which is nearly all of
+   *  them; 144.3's simultaneous move is what makes it worth having. */
+  staggerIndex?: number;
 }
 
 /**
@@ -163,6 +168,7 @@ export function CardView({
   attachedMightBonus,
   attachedToUnitName,
   currentMight,
+  staggerIndex,
   onClick,
   onUnavailableClick,
   unavailableNote,
@@ -195,6 +201,10 @@ export function CardView({
   // behaviour change riding along with a cosmetic feature.
   const artUrl = chosenArt(card.defId) || def?.imageUrl || (card.isToken ? TOKEN_ART[card.defId] : undefined);
   const setHovered = useCardHover();
+  // Read once per card and passed down into every transition below, so one
+  // component makes the reduced-motion decision for its whole subtree rather
+  // than each property re-asking the media query.
+  const reducedMotion = useReducedMotion() ?? false;
   const setDragGhost = useDragGhost();
 
   const classes = ["card"];
@@ -238,10 +248,42 @@ export function CardView({
       }
       onMouseEnter={() => setHovered({ card, def, ...(isUnplayable && unavailableNote ? { note: unavailableNote() } : {}) })}
       onMouseLeave={() => setHovered(null)}
-      initial={{ opacity: 0, scale: 0.8 }}
-      animate={{ opacity: 1, scale: 1, rotate: showExhausted ? 90 : 0 }}
-      exit={{ opacity: 0, scale: 0.8 }}
-      transition={{ type: "spring", stiffness: 400, damping: 32 }}
+      /**
+       * **Arriving and leaving are DIFFERENT, and the exhaust tap is different
+       * again.** All three used to share `{ type: "spring", stiffness: 400,
+       * damping: 32 }` with a symmetric `opacity 0 / scale 0.8` on both ends, so a
+       * card being drawn and a unit dying were the same gesture played twice.
+       *
+       * - **Enter** rises slightly and settles (`ARRIVE`) — a card put down.
+       * - **Exit** sinks, shrinks further and fades (`DEPART`) — a card taken
+       *   away. A tween rather than a spring: an exit has no destination to settle
+       *   at, and overshoot on the way out reads as the card changing its mind.
+       * - **The rotate is retimed per property** with `TAP`, which is stiff and
+       *   lightly underdamped so a tap arrives with a small overshoot. That
+       *   overshoot is the tactile signature of turning a physical card, and it is
+       *   the one place on the board where it is wanted.
+       *
+       * `layout` movement keeps `TRAVEL` — softer and slower than the old global
+       * spring, because a unit walking to a battlefield is the movement the player
+       * is meant to follow with their eyes.
+       *
+       * `staggerIndex` delays the whole thing for a group that moves together;
+       * see `motion.ts` for why 144.3's simultaneous moves need it.
+       */
+      initial={{ opacity: 0, scale: 0.86, y: 8 }}
+      animate={{ opacity: 1, scale: 1, y: 0, rotate: showExhausted ? 90 : 0 }}
+      exit={{ opacity: 0, scale: 0.72, y: 10 }}
+      transition={
+        reducedMotion
+          ? INSTANT
+          : {
+              ...ARRIVE,
+              delay: staggerDelay(staggerIndex ?? 0, false),
+              layout: TRAVEL,
+              rotate: TAP,
+              exit: DEPART,
+            }
+      }
       drag={Boolean(onDragEnd)}
       dragSnapToOrigin
       dragElastic={0.15}
@@ -350,7 +392,28 @@ export function CardView({
           aria-label={`Current Might ${currentMight}, printed ${card.might}`}
         >
           <span className="stat-might-printed">{card.might}</span>
-          <span className="stat-might-current">{currentMight}</span>
+          {/* **The current value FLASHES when it changes**, and the flash is the
+              whole point: a unit going 5 -> 3 used to render a different number
+              with no indication that anything had happened, so damage and buffs
+              were invisible unless the player happened to be looking at that card.
+
+              `key={currentMight}` is what drives it — React remounts the span on
+              a new value, so the `initial` runs. That is deliberate rather than a
+              trick: the identity of "the number 3" really is different from "the
+              number 5", and remounting is the cheapest honest way to say so
+              without diffing state this component does not own.
+
+              Colour is left to CSS; only scale moves here, so the flash cannot
+              fight the up/down colouring the stylesheet already applies. */}
+          <motion.span
+            key={currentMight}
+            className="stat-might-current"
+            initial={reducedMotion ? false : { scale: 1.7 }}
+            animate={{ scale: 1 }}
+            transition={reducedMotion ? INSTANT : READOUT}
+          >
+            {currentMight}
+          </motion.span>
         </div>
       )}
       {card.kind === "Gear" && attachedToUnitName !== undefined && (
