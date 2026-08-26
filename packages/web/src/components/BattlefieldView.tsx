@@ -31,6 +31,12 @@ interface BattlefieldViewProps {
    *  from `isTargetable` in both meaning and appearance — see CardView's
    *  `isChainTargeted`. */
   isChainTargeted: boolean;
+
+  /** Is this battlefield itself the SOURCE of something on the chain — its own
+   *  triggered ability waiting to resolve? A battlefield ability firing was the
+   *  least visible event on this board: it has no card in hand, no card in a
+   *  trash, and until now nothing pointed at it. See `CardView.isChainSource`. */
+  isChainSource: boolean;
   isDragOver: boolean;
   /** Which side of the board the viewer is, so their own facedown cards can be
    *  shown face-up to them and the opponent's cannot. */
@@ -51,6 +57,8 @@ interface BattlefieldViewProps {
   /** Is this unit named as a target by something on the chain? Owner-agnostic
    *  like `isUnitTargetable`, and applied to both sides here. */
   isUnitChainTargeted: (unit: UnitInstance) => boolean;
+  /** Is this unit the source of a trigger on the chain? See `isChainSource`. */
+  isUnitChainSource: (unit: UnitInstance) => boolean;
   /** Should one of the viewer's OWN units here be clickable — ordinarily any
    *  ready unit (move-selection), but only a legal answer while an armed card
    *  is still asking for one. GameBoard owns that rule; this just renders it
@@ -80,6 +88,7 @@ export function BattlefieldView({
   isMoveTarget,
   isTargetable,
   isChainTargeted,
+  isChainSource,
   isDragOver,
   humanIndex,
   playableHiddenIds,
@@ -88,6 +97,7 @@ export function BattlefieldView({
   dyingUnitIds,
   isUnitTargetable,
   isUnitChainTargeted,
+  isUnitChainSource,
   isFriendlySelectable,
   chosenUnitIds,
   onUnitClick,
@@ -115,6 +125,7 @@ export function BattlefieldView({
   // louder treatment a targetable card gets, for the same reason.
   if (isTargetable) classes.push("targetable");
   if (isChainTargeted) classes.push("chain-targeted");
+  if (isChainSource) classes.push("chain-source");
   if (isDragOver) classes.push("drag-over");
   if (isShowdownActive) classes.push("showdown");
 
@@ -277,6 +288,7 @@ export function BattlefieldView({
               isSelectable={isUnitTargetable(unit)}
               isTargetable={isUnitTargetable(unit)}
               isChainTargeted={isUnitChainTargeted(unit)}
+              isChainSource={isUnitChainSource(unit)}
               isSelected={chosenUnitIds.has(unit.instanceId)}
               onClick={() => onUnitClick(unit)}
             />
@@ -299,6 +311,7 @@ export function BattlefieldView({
               isSelectable={isFriendlySelectable(unit)}
               isTargetable={isUnitTargetable(unit)}
               isChainTargeted={isUnitChainTargeted(unit)}
+              isChainSource={isUnitChainSource(unit)}
               isSelected={selectedUnitIds.has(unit.instanceId) || chosenUnitIds.has(unit.instanceId)}
               onClick={() => onUnitClick(unit)}
               onDrag={canDragUnit(unit) ? (info) => onUnitDrag(unit, info) : undefined}

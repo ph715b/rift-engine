@@ -80,6 +80,7 @@ describe("BattlefieldView renders that card", () => {
         isMoveTarget={false}
         isTargetable={false}
         isChainTargeted={false}
+        isChainSource={false}
         isDragOver={false}
         humanIndex={0}
         isShowdownActive={false}
@@ -92,6 +93,7 @@ describe("BattlefieldView renders that card", () => {
         onUnitDrag={() => {}}
         onUnitDragEnd={() => {}}
         isUnitChainTargeted={() => false}
+        isUnitChainSource={() => false}
       />
       </HoverPreviewProvider>,
     );

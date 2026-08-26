@@ -78,11 +78,13 @@ function renderBoard(props: ReturnType<typeof withFacedown>) {
         isMoveTarget={false}
         isTargetable={false}
         isChainTargeted={false}
+        isChainSource={false}
         isDragOver={false}
         humanIndex={0}
         isShowdownActive={false}
         isUnitTargetable={() => false}
         isUnitChainTargeted={() => false}
+        isUnitChainSource={() => false}
         isFriendlySelectable={() => false}
         chosenUnitIds={new Set()}
         onUnitClick={() => {}}

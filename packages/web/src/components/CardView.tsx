@@ -45,6 +45,23 @@ interface CardViewProps {
    *  "something is about to happen to this", and confusing the two would make
    *  the board look interactive during a window where it isn't. */
   isChainTargeted?: boolean;
+
+  /**
+   * This card is the SOURCE of something on the chain — a permanent whose
+   * triggered ability is waiting to resolve.
+   *
+   * **The board could say nothing at all about a trigger before this.** A
+   * triggered ability carries no targets (the engine pushes them
+   * already-finalized), so the co-highlight had nothing to point at, and the
+   * chain panel named a card the player then had to find among thirty on the
+   * board. The effect arrived from an unidentified direction.
+   *
+   * A different visual from `isChainTargeted` on purpose: that one means
+   * "something is about to happen TO this", and this one means "this is about to
+   * DO something". Same colour, because both are the chain; a glow rather than a
+   * dashed outline, because the dashes read as being aimed at.
+   */
+  isChainSource?: boolean;
   /** A hand/champion card that CAN'T be played right now — dimmed, so the
    *  hand reads at a glance, and still clickable via `onUnavailableClick` to
    *  say why. */
@@ -175,6 +192,7 @@ export function CardView({
   isSelected,
   isTargetable,
   isChainTargeted,
+  isChainSource,
   isUnplayable,
   attachedEquipment,
   attachedMightBonus,
@@ -225,6 +243,7 @@ export function CardView({
   if (isSelectable) classes.push("selectable");
   if (isTargetable) classes.push("targetable");
   if (isChainTargeted) classes.push("chain-targeted");
+  if (isChainSource) classes.push("chain-source");
   if (isUnplayable) classes.push("unplayable");
   if (isSelected) classes.push("selected");
   const showExhausted = Boolean(card.exhausted) && !inPile;

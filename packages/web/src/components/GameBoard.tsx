@@ -49,6 +49,7 @@ import { targetingBlockedReason } from "../unplayable-target-reason.js";
 import { unanimousPlayFields } from "../hidden-play-seed.js";
 import type { GameEvent } from "@rift-engine/engine";
 import { announcedPlay, linesFrom, unitsThatDied, type LogLine, type PlayAnnouncement } from "../event-log.js";
+import { chainHighlight as computeChainHighlight } from "../chain-highlight.js";
 import { GameLog } from "./GameLog.js";
 import { PlayAnnouncer } from "./PlayAnnouncer.js";
 import {
@@ -618,6 +619,12 @@ export function GameBoard({ initialConfig, onMainMenu, seed }: GameBoardProps) {
   // ChainView; before this existed, `state.spellChain` reached the UI nowhere
   // at all.
   const chainItems = useMemo(() => describeChain(state), [state]);
+
+  /** Is the chain rail on screen? One expression, used BOTH to mount the rail and
+   *  to reserve the width it occupies — if these two could disagree, the board
+   *  would either be inset with no panel in the gap or covered by a panel with no
+   *  gap, and each is a bug that only appears in the frames where they differ. */
+  const chainRailOpen = chainItems.length > 0 || resolvingChainItem !== null;
 
   // Empty under spectate, which is what makes the board unclickable: every
   // affordance on it — an armable hand card, a selectable unit, the Pass button
@@ -1730,41 +1737,12 @@ export function GameBoard({ initialConfig, onMainMenu, seed }: GameBoardProps) {
     return ids;
   }
 
-  /** Everything the chain currently points at, as ids the board can match —
-   *  read off the raw ChainEntry rather than off `describeChain`'s output,
-   *  which resolves ids to display names on purpose and so can't be matched
-   *  back against a unit. Narrowed to a single item while one is hovered in
-   *  ChainView, so a deep chain can be read one item at a time.
-   *
-   *  This is how a chain item points at its target: no arrows. The Java client
-   *  draws real arrows and its own comment records why that was fragile —
-   *  nodes added in the same layout pulse measured stale/zero bounds, "and
-   *  that mismatch, not a logic bug, was why the arrow only sometimes
-   *  appeared" (ui/BoardController.java's drawChainArrows, which needed both a
-   *  deferred pulse and a forced applyCss()/layout()). Framer Motion owns
-   *  every card's transform here, so co-highlighting the target instead says
-   *  the same thing with nothing measured. */
-  function chainHighlight(): { units: Set<string>; battlefields: Set<string> } {
-    const source = hoveredChainIndex !== null ? chainItems.slice(hoveredChainIndex, hoveredChainIndex + 1) : chainItems;
-    const units = new Set<string>();
-    const battlefields = new Set<string>();
-    for (const item of source) {
-      // A triggered ability waiting as a Pending Item has no chosen targets to
-      // co-highlight — it is pushed already-finalized, so nothing was ever picked.
-      if (item.kind !== "spell") continue;
-      for (const id of [
-        item.entry.targetUnitInstanceId,
-        item.entry.secondTargetUnitInstanceId,
-        item.entry.additionalCostUnitInstanceId,
-      ]) {
-        if (id !== undefined) units.add(id);
-      }
-      for (const id of [item.entry.targetBattlefieldId, item.entry.destinationBattlefieldId]) {
-        if (id !== undefined) battlefields.add(id);
-      }
-    }
-    return { units, battlefields };
-  }
+  /** Everything the chain currently concerns, as ids the board can match — read
+   *  off the raw ChainEntry rather than off `describeChain`'s display names,
+   *  which cannot be matched back against a unit. The reasoning, including why
+   *  this is a co-highlight and not an arrow, lives with the function in
+   *  `chain-highlight.ts`. */
+  const chainHighlight = () => computeChainHighlight(chainItems, hoveredChainIndex);
 
   /** Unified click handler for any unit, friendly or enemy, at a battlefield
    *  OR in the human's own base. If an armed card is currently waiting on a
@@ -2888,7 +2866,18 @@ export function GameBoard({ initialConfig, onMainMenu, seed }: GameBoardProps) {
           />
         </div>
 
-        <div className="board-center">
+        {/* **The chain DISPLACES rather than covers.** `.chain-rail` is an overlay
+            300px wide over the left of this column, and the left battlefield lives
+            under it — so a trigger firing during a combat at that battlefield hid
+            the cards being fought over, at the exact moment they mattered most.
+
+            Width is the right dimension to spend and height is not: every card on
+            this board is sized from the SHORTEST ROW (use-board-card-size), so a
+            horizontal inset costs no card size at all, while a fourth vertical band
+            has clipped this board before. `.battlefields` is a grid of equal
+            fractions and the hand absorbs width through use-row-fit, so both simply
+            narrow. */}
+        <div className={`board-center${chainRailOpen ? " chain-inset" : ""}`}>
           {/* Absolutely positioned inside this column and mounted only while
               there's something to show, so it adds no row and can't push the
               fixed-height board into overflow. Nothing on the board is
@@ -2898,7 +2887,7 @@ export function GameBoard({ initialConfig, onMainMenu, seed }: GameBoardProps) {
               of which is a drag. So this can't shadow a drop zone's hit-test
               either. The list is deliberately not relied on beyond that: it has
               narrowed once already. */}
-          {(chainItems.length > 0 || resolvingChainItem) && (
+          {chainRailOpen && (
             <ChainView
               items={chainItems}
               resolving={resolvingChainItem}
@@ -2964,6 +2953,7 @@ export function GameBoard({ initialConfig, onMainMenu, seed }: GameBoardProps) {
                       isSelectable={isUnitLegalTarget(unit)}
                       isTargetable={isUnitLegalTarget(unit)}
                       isChainTargeted={chainTargets.units.has(unit.instanceId)}
+                      isChainSource={chainTargets.sources.has(unit.instanceId)}
                       isSelected={pendingChosenUnitIds().has(unit.instanceId)}
                       onClick={() => handleUnitClick(unit)}
                     />
@@ -2993,11 +2983,13 @@ export function GameBoard({ initialConfig, onMainMenu, seed }: GameBoardProps) {
                 }
                 isTargetable={canAct && isBattlefieldLegalTarget(bf.id)}
                 isChainTargeted={chainTargets.battlefields.has(bf.id)}
+                isChainSource={chainTargets.sources.has(bf.id)}
                 isDragOver={dragOverZoneId === bf.id}
                 isShowdownActive={state.showdownBattlefieldId === bf.id}
                 dyingUnitIds={dyingUnitIds}
                 isUnitTargetable={isUnitLegalTarget}
                 isUnitChainTargeted={(unit) => chainTargets.units.has(unit.instanceId)}
+                isUnitChainSource={(unit) => chainTargets.sources.has(unit.instanceId)}
                 isFriendlySelectable={isFriendlyUnitSelectable}
                 chosenUnitIds={pendingChosenUnitIds()}
                 onUnitClick={handleUnitClick}
@@ -3095,6 +3087,7 @@ export function GameBoard({ initialConfig, onMainMenu, seed }: GameBoardProps) {
                       isSelectable={canAct && isFriendlyUnitSelectable(unit)}
                       isTargetable={isUnitLegalTarget(unit)}
                       isChainTargeted={chainTargets.units.has(unit.instanceId)}
+                      isChainSource={chainTargets.sources.has(unit.instanceId)}
                       isSelected={selectedUnitIds.has(unit.instanceId) || pendingChosenUnitIds().has(unit.instanceId)}
                       onClick={() => handleUnitClick(unit)}
                       onDrag={canDragUnit(unit) ? trackDragZone : undefined}

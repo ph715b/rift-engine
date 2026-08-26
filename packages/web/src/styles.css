@@ -301,6 +301,41 @@ button:disabled {
   position: relative;
 }
 
+/* **The width the chain rail occupies.** One value, used by the panel and by the
+   inset that makes room for it — if they could drift, the board would be inset by
+   one amount and covered by a panel of another. */
+:root {
+  --chain-rail-w: min(272px, 26vw);
+}
+
+/* The chain DISPLACES the column rather than covering it. The rail is an overlay
+   over the left of this column and the left battlefield lives under it, so a
+   trigger during a combat there hid the cards being fought over at the moment they
+   mattered most.
+
+   Width is the dimension to spend: every card here is sized from the SHORTEST ROW
+   (use-board-card-size), so a horizontal inset costs no card size at all — while a
+   fourth vertical band has clipped this board before. The rail itself is unmoved,
+   because an absolutely positioned child resolves `left: 0` against the PADDING
+   box: the panel sits in the gap this opens rather than beside it. */
+.board-center.chain-inset {
+  padding-left: calc(var(--chain-rail-w) + 0.6rem);
+}
+
+.board-center {
+  /* Transitioned rather than snapped, and on the PARENT rather than per card:
+     the cards carry framer `layout` springs, so an instant inset would have them
+     springing while the zone boxes around them jumped. One transition moves the
+     whole column together. */
+  transition: padding-left 0.22s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .board-center {
+    transition: none;
+  }
+}
+
 .zone {
   border: 1px solid var(--color-border);
   border-radius: 10px;
@@ -1471,6 +1506,41 @@ button:disabled {
   outline: 3px dashed var(--color-chain);
   outline-offset: 2px;
   box-shadow: 0 0 14px 2px color-mix(in srgb, var(--color-chain) 45%, transparent);
+}
+
+/* This card is the SOURCE of something on the chain — its triggered ability is
+   waiting to resolve. A GLOW, not the dashed outline `.chain-targeted` uses: the
+   dashes read as "aimed at", and a trigger source is the opposite claim. Same
+   chain colour, because both are the chain.
+
+   It pulses because a trigger is a MOMENT. A static outline would be one more
+   permanent decoration on a board that already has several, and the thing worth
+   noticing here is that this card just did something. */
+.card.chain-source,
+.battlefield.chain-source {
+  outline: 3px solid var(--color-chain);
+  outline-offset: 2px;
+  animation: chain-source-pulse 1.15s ease-in-out infinite;
+}
+
+@keyframes chain-source-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 10px 1px color-mix(in srgb, var(--color-chain) 40%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 22px 6px color-mix(in srgb, var(--color-chain) 75%, transparent);
+  }
+}
+
+/* The pulse is the whole point, so reduced motion keeps the emphasis and drops
+   only the movement — a steady bright ring rather than no ring. */
+@media (prefers-reduced-motion: reduce) {
+  .card.chain-source,
+  .battlefield.chain-source {
+    animation: none;
+    box-shadow: 0 0 18px 4px color-mix(in srgb, var(--color-chain) 65%, transparent);
+  }
 }
 
 .battlefield.chain-targeted {
@@ -3203,7 +3273,7 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
-  width: min(300px, 30vw);
+  width: var(--chain-rail-w);
   max-height: 100%;
   overflow-y: auto;
   padding: 0.55rem 0.7rem;

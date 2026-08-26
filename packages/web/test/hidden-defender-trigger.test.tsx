@@ -167,11 +167,13 @@ describe("the BOARD gives a human something to click", () => {
             isMoveTarget={false}
             isTargetable={false}
             isChainTargeted={false}
+            isChainSource={false}
             isDragOver={false}
             humanIndex={0}
             isShowdownActive
             isUnitTargetable={() => false}
             isUnitChainTargeted={() => false}
+            isUnitChainSource={() => false}
             isFriendlySelectable={() => false}
             chosenUnitIds={new Set()}
             onUnitClick={() => {}}
