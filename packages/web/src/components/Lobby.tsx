@@ -1,61 +1,18 @@
 import { useState } from "react";
-import { allPresetDecks, presetDeckList, serializeDeckFile, type DeckList } from "@rift-engine/engine";
-import { getProfileDecks, removeProfileDeck } from "../profile.js";
-import { downloadTextFile } from "../download-file.js";
-import { DeckImport } from "./DeckImport.js";
-import { DecklistTextImport } from "./DecklistTextImport.js";
+import { allPresetDecks, presetDeckList, type DeckList } from "@rift-engine/engine";
+import { getProfileDecks } from "../profile.js";
+import { DeckListPicker } from "./DeckListPicker.js";
 import type { MatchConfig, MatchFormat } from "../game-setup.js";
 
 const PRESET_DECK_LISTS = allPresetDecks().map(presetDeckList);
 
-interface DeckListPickerProps {
-  label: string;
-  decks: DeckList[];
-  selectedName: string | null;
-  onSelect: (deck: DeckList) => void;
-  onRemove?: (name: string) => void;
-  onEdit?: (deck: DeckList) => void;
-  onExport?: (deck: DeckList) => void;
-}
-
-function DeckListPicker({ label, decks, selectedName, onSelect, onRemove, onEdit, onExport }: DeckListPickerProps) {
-  return (
-    <div>
-      {label && <div className="zone-label">{label}</div>}
-      <div className="deck-list">
-        {decks.map((deck) => (
-          <div key={deck.name} className={`deck-option${selectedName === deck.name ? " selected" : ""}`}>
-            <button className="deck-option-button" onClick={() => onSelect(deck)}>
-              {deck.name}
-            </button>
-            {onEdit && (
-              <button className="deck-option-edit" onClick={() => onEdit(deck)} title="Edit this deck">
-                ✎
-              </button>
-            )}
-            {onExport && (
-              <button className="deck-option-export" onClick={() => onExport(deck)} title="Download as a .deck file">
-                ⬇
-              </button>
-            )}
-            {onRemove && (
-              <button className="deck-option-remove" onClick={() => onRemove(deck.name)} title="Remove from profile">
-                ✕
-              </button>
-            )}
-          </div>
-        ))}
-        {decks.length === 0 && <p className="deck-list-empty">No decks yet.</p>}
-      </div>
-    </div>
-  );
-}
-
 interface LobbyProps {
   onStartMatch: (config: MatchConfig) => void;
   onBack: () => void;
-  onOpenDeckBuilder: (initialDeck?: DeckList) => void;
-  onImportDecklistText: (deckList: DeckList, unresolvedNames: string[]) => void;
+  /** Open the deck LIBRARY. The lobby used to carry building, importing,
+   *  editing, exporting and deleting inline; all of that lives in the manager
+   *  now, and this is the door to it. */
+  onManageDecks: () => void;
 }
 
 /**
@@ -66,7 +23,7 @@ interface LobbyProps {
  * rematch either reuses this exact config or jumps straight back here for
  * a quick swap, it never re-litigates the choice mid-game.
  */
-export function Lobby({ onStartMatch, onBack, onOpenDeckBuilder, onImportDecklistText }: LobbyProps) {
+export function Lobby({ onStartMatch, onBack, onManageDecks }: LobbyProps) {
   const [profileDecks, setProfileDecks] = useState(getProfileDecks);
   const [humanDeck, setHumanDeck] = useState<DeckList | null>(null);
   const [aiDeck, setAiDeck] = useState<DeckList | null>(PRESET_DECK_LISTS[0] ?? null);
@@ -78,19 +35,10 @@ export function Lobby({ onStartMatch, onBack, onOpenDeckBuilder, onImportDecklis
   // or to instrument, never one you should find yourself in by accident.
   const [spectate, setSpectate] = useState(false);
 
-  function refreshProfile() {
-    setProfileDecks(getProfileDecks());
-  }
-
-  function handleRemove(name: string) {
-    removeProfileDeck(name);
-    refreshProfile();
-    setHumanDeck((prev) => (prev?.name === name ? null : prev));
-  }
-
-  function handleExport(deck: DeckList) {
-    downloadTextFile(`${deck.name}.deck`, serializeDeckFile(deck));
-  }
+  // **No refresh handler here.** Adding, editing and deleting all happen in the
+  // deck manager, which is a separate SCREEN — returning remounts this component,
+  // so `useState(getProfileDecks)` re-reads the library on the way back. A stale
+  // list would need this screen to survive the round trip, and it does not.
 
   return (
     <div className="board">
@@ -102,18 +50,20 @@ export function Lobby({ onStartMatch, onBack, onOpenDeckBuilder, onImportDecklis
       <div className="zone">
         <div className="zone-label">{spectate ? "First bot's deck" : "Your deck"}</div>
         <DeckListPicker label="" decks={PRESET_DECK_LISTS} selectedName={humanDeck?.name ?? null} onSelect={setHumanDeck} />
+        {/* **Selection only.** This zone used to carry six controls — build,
+            import a file, import pasted text, edit, export, delete — of which
+            exactly one was about the match being set up. Picking a deck felt
+            like paperwork because it was surrounded by it. All of that lives in
+            the deck manager now; what is left here answers the one question the
+            lobby exists to ask. */}
         <DeckListPicker
           label="Your saved decks"
           decks={profileDecks}
           selectedName={humanDeck?.name ?? null}
           onSelect={setHumanDeck}
-          onRemove={handleRemove}
-          onEdit={onOpenDeckBuilder}
-          onExport={handleExport}
+          emptyNote="No decks of your own yet — Manage decks to build or import one."
         />
-        <DeckImport onImported={refreshProfile} />
-        <DecklistTextImport onParsed={onImportDecklistText} />
-        <button onClick={() => onOpenDeckBuilder()}>Build a deck</button>
+        <button onClick={onManageDecks}>Manage decks</button>
       </div>
 
       <div className="zone">

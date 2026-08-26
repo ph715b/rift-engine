@@ -1,9 +1,13 @@
 interface MainMenuProps {
   onNewGame: () => void;
-  onBuildDeck: () => void;
+  /** The deck LIBRARY. This was `onBuildDeck` and went straight to the builder;
+   *  it opens the manager now, which holds building alongside importing,
+   *  editing, exporting and deleting. "Build a Deck" was the only door to any of
+   *  those from here, and three of them had no door at all outside the lobby. */
+  onManageDecks: () => void;
 }
 
-export function MainMenu({ onNewGame, onBuildDeck }: MainMenuProps) {
+export function MainMenu({ onNewGame, onManageDecks }: MainMenuProps) {
   return (
     <div className="menu-screen">
       <h1>Rift-Engine</h1>
@@ -11,7 +15,7 @@ export function MainMenu({ onNewGame, onBuildDeck }: MainMenuProps) {
       <button className="menu-primary-button" onClick={onNewGame}>
         New Game
       </button>
-      <button onClick={onBuildDeck}>Build a Deck</button>
+      <button onClick={onManageDecks}>Manage Decks</button>
     </div>
   );
 }
