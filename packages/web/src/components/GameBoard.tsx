@@ -84,7 +84,9 @@ import { cardHasDestination } from "../card-destination.js";
 import { minimumTargetsFor } from "../target-optionality.js";
 import {
   matchesPendingChoices,
+  costFlagAlternative as findCostFlagAlternative,
   matchesPendingCostFilter,
+  type PendingOptionalCosts,
   modeFilterAllows,
   sameMode,
   sameOptionalCosts,
@@ -165,7 +167,7 @@ function fanTransform(index: number, count: number): CSSProperties {
  *  Switching to a different hand card discards this whole object rather
  *  than swapping just `.card`, so a rune proposal built for one card can
  *  never leak into another's submission. */
-interface PendingPlay {
+interface PendingPlay extends PendingOptionalCosts {
   card: CardInstance;
   /**
    * Which mode of a modal card ("Choose one —") is being played.
@@ -277,11 +279,15 @@ interface PendingPlay {
    * share one axis field, and a play that claims an axis buying nothing is
    * REFUSED by the validator — so it has to match exactly like the rest, or the
    * board offers an action `submit` will reject.
+   *
+   * **They are no longer listed here, and that is the point.** Naming each flag
+   * as its own field is what let this interface drift the moment
+   * `OPTIONAL_COST_FLAGS` grew: four axes were added to the list in 2026-08-26 and
+   * every one of them failed to typecheck against a hand-written set here. The
+   * list is the single source, so this spreads it — `PendingOptionalCosts` is
+   * `Partial<Record<OptionalCostKey, boolean>>` plus the one non-boolean axis, and
+   * a fifth costs nothing here.
    */
-  optionalPowerPaid?: boolean;
-  repeatPaid?: boolean;
-  grantedRepeatPaid?: boolean;
-  targetDiscountAxis?: "energy" | "power";
   payment: RunePayment;
 }
 
@@ -1481,20 +1487,11 @@ export function GameBoard({ initialConfig, onMainMenu, seed }: GameBoardProps) {
   /** The armed card's OTHER cost variant, if [Accelerate] gives it one. Undefined
    *  whenever the card has no accelerated form, which is every card but a handful —
    *  so the toggle below simply doesn't render for them. */
+  /** Whether the armed card has an alternative along `key` right now — the
+   *  reasoning, and why it is worth testing, live with the function in
+   *  `pending-match.ts`. */
   function costFlagAlternative(key: OptionalCostKey): PlayCardAction | undefined {
-    const pending = pendingPlay;
-    if (!pending) return undefined;
-    const want = !(pending[key] ?? false);
-    // Every OTHER settled choice must still match, or the "alternative" would be
-    // a different card variant entirely — a repeat-paid candidate aimed at a
-    // different target, say. This is the same pairing `pendingCandidates`
-    // enforces, which is why it is asked of that list rather than of every
-    // action for the card.
-    return pendingCandidates().find(
-      (a) =>
-        (a[key] ?? false) === want &&
-        OPTIONAL_COST_FLAGS.every((f) => f.key === key || (a[f.key] ?? false) === (pending[f.key] ?? false)),
-    );
+    return pendingPlay ? findCostFlagAlternative(pendingCandidates(), pendingPlay, key) : undefined;
   }
 
   /**

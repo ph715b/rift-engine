@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { createCardInstance, defaultCardRegistry } from "@rift-engine/engine";
 import type { PlayCardAction } from "@rift-engine/engine";
 import {
@@ -41,13 +43,36 @@ function action(flags: Partial<PlayCardAction>): PlayCardAction {
 }
 
 describe("every optional-cost flag is compared, not just [Accelerate]", () => {
-  it("covers all four flags — the list is what stops the next one being forgotten", () => {
-    expect(OPTIONAL_COST_FLAGS.map((f) => f.key).sort()).toEqual([
-      "acceleratePaid",
-      "grantedRepeatPaid",
-      "optionalPowerPaid",
-      "repeatPaid",
-    ]);
+  it("lists only flags the ENGINE actually offers — the list cannot invent one", () => {
+    /**
+     * **Was a hardcoded set of four names until 2026-08-26, and it rotted the
+     * moment the list grew to eight.** A literal roster tests nothing about
+     * whether the flags are right — it only asserts that nobody has added one,
+     * which is the opposite of what this file wants, since the loop below is
+     * built to absorb new ones for free.
+     *
+     * The invariant that actually matters: every key here names a real optional
+     * cost on `PlayCardAction`. A typo'd or invented key would make
+     * `costFlagAlternative` search for a variant that can never exist, so the
+     * button would simply never render — silent, and indistinguishable from a
+     * card that has no such cost.
+     *
+     * Read out of the engine's source, the technique `coverage-drift` uses and
+     * that `ui-can-express-every-choice` uses on this same interface, because a
+     * hand-copied roster is exactly what just failed here.
+     */
+    const engineSource = readFileSync(
+      resolve(process.cwd(), "..", "engine", "src", "actions", "player-action.ts"),
+      "utf8",
+    );
+    const start = engineSource.indexOf("interface PlayCardAction");
+    expect(start, "PlayCardAction was renamed — this check is measuring nothing").toBeGreaterThan(-1);
+    const body = engineSource.slice(start, engineSource.indexOf("\n}", start));
+
+    for (const { key } of OPTIONAL_COST_FLAGS) {
+      expect(body.includes(`${key}?:`), `${key} is not a field on PlayCardAction`).toBe(true);
+    }
+    expect(OPTIONAL_COST_FLAGS.length, "the list emptied — every variant check below is vacuous").toBeGreaterThan(3);
   });
 
   it.each(OPTIONAL_COST_FLAGS.map((f) => f.key))("tells a %s variant from a plain one", (key) => {

@@ -104,7 +104,8 @@ const KNOWN_GAPS: Record<string, string> = {
     "WHICH friendly gear to spend — 2 cards (Zaun Punk kills one, Legion Quartermaster returns one to hand).",
   destinationIsBase: "Carried by the action and never read here; the board uses `destinationBattlefieldId` plus a BASE sentinel instead.",
   // **Six gaps this instrument found the day it arrived on this branch, all of
-  // them opened while it was absent.** It was written on master on 2026-08-08;
+  // them opened while it was absent — FOUR of them closed the same day.** It was
+  // written on master on 2026-08-08;
   // this branch forked the same day and only merged it back on 2026-08-26, and
   // every field below was added to `PlayCardAction` during Unleashed or Vendetta
   // in between. That is exactly the window the test exists to close, and the
@@ -113,16 +114,13 @@ const KNOWN_GAPS: Record<string, string> = {
   // Declared, NOT excused: each is a legal play a human cannot currently choose,
   // which is the fidelity bar this project holds itself to. Closing one means
   // deleting its line here.
+  //
+  // `replacedCostPaid`, `optionalXpPaid`, `dragonRoostPaid` and `exhaustLegendPaid`
+  // were deleted on 2026-08-26: they are booleans, and `OPTIONAL_COST_FLAGS` is a
+  // LIST, so each cost one line. The two below are not booleans, which is the
+  // whole reason they are still here.
   repeatDiscardCardInstanceId:
     "WHICH card to discard to buy a second [Repeat] execution. Distinct from `discardCardInstanceId`, which is a discount a card BUYS with a discard — a play can owe both.",
-  replacedCostPaid:
-    "Whether to use a card's \"you may play me for [Cost]\" price instead of its printed one (356.1.a). The cheaper line is simply never offered.",
-  optionalXpPaid:
-    "Whether to spend N XP as an additional cost (204.2) — Conscription and Safety Inspector. XP is not a Game Object (731), so nothing else on the action reveals the choice.",
-  dragonRoostPaid:
-    "Dragon Roost (VEN-157): pay [2 rainbow] to play a Dragon TO the Roost. The only optional cost here that buys a PLACEMENT rather than an effect, so the lost choice is where the unit lands.",
-  exhaustLegendPaid:
-    "Bard - Mercurial (SFD-079): exhaust your Legend as an additional cost. Master's UI expressed this and this branch's rewrite did not carry it across — the one entry here that is a REGRESSION rather than a never-built.",
   repeatExecutions:
     "The per-instance choices for a multi-[Repeat] play (820.1.c.2 — each cost paid or not paid individually). The board can pay a Repeat but cannot vary what each execution does.",
 };

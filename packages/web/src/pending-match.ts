@@ -137,6 +137,34 @@ export const OPTIONAL_COST_FLAGS = [
   { key: "optionalPowerPaid", on: "Pay optional cost", off: "Don't pay optional cost" },
   { key: "repeatPaid", on: "Repeat (pay again)", off: "Don't Repeat" },
   { key: "grantedRepeatPaid", on: "Repeat (granted)", off: "Don't use granted Repeat" },
+  // **Four axes the engine has offered all along with no way to answer them.**
+  // Added 2026-08-26, when `ui-can-express-every-choice.test.ts` was merged back
+  // from master and named them. Each was a legal play a human could not choose:
+  // the enumerator emitted both variants, `matchesPending` could only ever find
+  // the unpaid one, and the paid line was unreachable however plainly the card
+  // printed it.
+  //
+  // They cost one line each because this is a LIST — `sameOptionalCosts`,
+  // `matchesPendingCostFilter`, `costFlagAlternative` and the button row all
+  // iterate it. That is the whole claim the comment above makes, and it holds.
+  //
+  // 356.1.a — Jhin - Meticulous Killer and Undying Legion print "you may play me
+  // for [Cost]" instead of their printed one. A REPLACEMENT, not a discount, which
+  // is why it cannot share `acceleratePaid`'s flag.
+  { key: "replacedCostPaid", on: "Play for its alternate cost", off: "Play for its printed cost" },
+  // 204.2 — Safety Inspector (3 XP, buying exemption from his own kill) and
+  // Poppy - Defender of the Meek (3 XP, and she costs [3] less). The amount is
+  // per card, so the label cannot name it; the cost line on the armed card does.
+  { key: "optionalXpPaid", on: "Spend XP as an additional cost", off: "Don't spend XP" },
+  // VEN-157 Dragon Roost — "ANY player may pay [2 rainbow] as an additional cost
+  // to play a Dragon. If they do, they play it to this battlefield." The only one
+  // here that buys a PLACEMENT rather than an effect, so paying it settles where
+  // the Dragon lands; the enumerator only ever emits it paired with the Roost.
+  { key: "dragonRoostPaid", on: "Pay to play at the Dragon Roost", off: "Don't pay — play it elsewhere" },
+  // SFD-079 Bard - Mercurial. **The one REGRESSION of the four**: master's board
+  // expressed this and the rewrite on this branch did not carry it across, so it
+  // was reachable once and then was not.
+  { key: "exhaustLegendPaid", on: "Exhaust your Legend to pay", off: "Don't exhaust your Legend" },
 ] as const;
 
 export type OptionalCostKey = (typeof OPTIONAL_COST_FLAGS)[number]["key"];
@@ -184,4 +212,32 @@ export function matchesPendingCostFilter(candidate: PlayCardAction, pending: Pen
     return false;
   }
   return true;
+}
+
+/**
+ * The armed card's OTHER variant along one optional-cost axis, if the engine is
+ * offering one right now.
+ *
+ * **This is what decides whether a toggle button exists at all**, which makes it
+ * the difference between a cost a player can pay and one that is merely modelled.
+ * Lifted out of `GameBoard` so that decision can be tested against a REAL
+ * enumeration: for the four axes added on 2026-08-26 the field being read by the
+ * board was necessary and not sufficient — a button that never finds an
+ * alternative never renders, and looks exactly like a card that has no such cost.
+ *
+ * Every OTHER settled choice must still match, or the "alternative" would be a
+ * different variant entirely — a repeat-paid candidate aimed at a different
+ * target, say.
+ */
+export function costFlagAlternative(
+  candidates: readonly PlayCardAction[],
+  pending: PendingOptionalCosts,
+  key: OptionalCostKey,
+): PlayCardAction | undefined {
+  const want = !(pending[key] ?? false);
+  return candidates.find(
+    (a) =>
+      (a[key] ?? false) === want &&
+      OPTIONAL_COST_FLAGS.every((f) => f.key === key || (a[f.key] ?? false) === (pending[f.key] ?? false)),
+  );
 }
