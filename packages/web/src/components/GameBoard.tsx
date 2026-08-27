@@ -86,6 +86,7 @@ import {
   matchesPendingChoices,
   costFlagAlternative as findCostFlagAlternative,
   matchesPendingCostFilter,
+  repeatDiscardOptions,
   type PendingOptionalCosts,
   modeFilterAllows,
   sameMode,
@@ -215,6 +216,17 @@ interface PendingPlay extends PendingOptionalCosts {
    *  see `matchesPendingEquipment`, which cannot tell those apart without it. */
   equipmentChoiceResolved?: boolean;
   trashCardInstanceId?: string;
+  /**
+   * The card discarded to pay a `[Repeat]` whose cost is CARDS — Square Up's
+   * "[Repeat] — Discard 1".
+   *
+   * Its own field rather than `trashCardInstanceId` (a card in the TRASH) or
+   * `discardCardInstanceId` (a discount a card BUYS with a discard, Brazen
+   * Buccaneer). The engine keeps all three apart for the reason its own comment
+   * gives: a play can owe both discards, and folding them together would make
+   * one silently pay for the other.
+   */
+  repeatDiscardCardInstanceId?: string;
   /** **Vestigial since 2026-08-25** and always undefined. `[Vision]`'s recycle is
    *  a parked engine decision now (`vision-predict`), asked at resolution per
    *  817.2.a rather than chosen as part of the play. Kept only so a `PlayCardAction`
@@ -328,7 +340,11 @@ type PendingStep =
    *  see `matchesPendingEquipment`. */
   | "equipment"
   | "additionalCost"
-  | "trashCard";
+  | "trashCard"
+  /** Which card from HAND pays a card-costed `[Repeat]`. Modal, and it comes
+   *  after `trashCard` because it is only ever asked once the Repeat has been
+   *  opted into — see `pendingStep`. */
+  | "repeatDiscard";
 
 /** Finds the drop zone (a battlefield id, or BASE_ZONE_ID) under a viewport
  *  point, via the `data-dropzone-id` attributes BattlefieldView/the base
@@ -1167,6 +1183,12 @@ export function GameBoard({ initialConfig, onMainMenu, seed }: GameBoardProps) {
       }
       if (pending.targetBattlefieldId !== undefined && a.targetBattlefieldId !== pending.targetBattlefieldId) return false;
       if (pending.trashCardInstanceId !== undefined && a.trashCardInstanceId !== pending.trashCardInstanceId) return false;
+      if (
+        pending.repeatDiscardCardInstanceId !== undefined &&
+        a.repeatDiscardCardInstanceId !== pending.repeatDiscardCardInstanceId
+      ) {
+        return false;
+      }
       // Resolved-ness of the optional cost is the FLAG, not the id — see
       // PendingPlay.additionalCostResolved's own doc comment.
       if (pending.additionalCostResolved && (a.additionalCostUnitInstanceId ?? null) !== (pending.additionalCostUnitInstanceId ?? null)) {
@@ -1291,6 +1313,13 @@ export function GameBoard({ initialConfig, onMainMenu, seed }: GameBoardProps) {
     if (targeting.kind === "ownTrashCard" && pending.trashCardInstanceId === undefined) {
       if (offers("trashCardInstanceId")) return "trashCard";
     }
+    // **Only once the [Repeat] has been opted into.** The discard is that
+    // instance's COST, so asking before the player has chosen to pay would stop
+    // the board for a cost they may decline — and `offers` would answer from the
+    // paid candidates while the pending play is still unpaid.
+    if (pending.repeatPaid && pending.repeatDiscardCardInstanceId === undefined) {
+      if (offers("repeatDiscardCardInstanceId")) return "repeatDiscard";
+    }
     return null;
   }
 
@@ -1334,6 +1363,8 @@ export function GameBoard({ initialConfig, onMainMenu, seed }: GameBoardProps) {
       return (
         (a.targetBattlefieldId ?? null) === (pending.targetBattlefieldId ?? null) &&
         (a.trashCardInstanceId ?? null) === (pending.trashCardInstanceId ?? null) &&
+      (a.repeatDiscardCardInstanceId ?? null) === (pending.repeatDiscardCardInstanceId ?? null) &&
+        (a.repeatDiscardCardInstanceId ?? null) === (pending.repeatDiscardCardInstanceId ?? null) &&
         (a.additionalCostUnitInstanceId ?? null) === (pending.additionalCostUnitInstanceId ?? null) &&
         (a.destinationBattlefieldId ?? BASE_ZONE_ID) === (pending.destinationBattlefieldId ?? BASE_ZONE_ID) &&
         (a.fromHiddenBattlefieldId ?? null) === (pending.fromHiddenBattlefieldId ?? null) &&
@@ -1968,6 +1999,16 @@ export function GameBoard({ initialConfig, onMainMenu, seed }: GameBoardProps) {
     return human.trash.filter((c) => eligible.has(c.instanceId));
   }
 
+  /** The hand cards that can pay a card-costed `[Repeat]`, resolved from the
+   *  CANDIDATES rather than from a rule this file re-derives — the same reason
+   *  `pendingTrashOptions` does it that way. The card being played is itself in
+   *  hand and is never an option, and the engine already knows that, so nothing
+   *  here has to. */
+  function pendingRepeatDiscardOptions(): CardInstance[] {
+    if (pendingStep() !== "repeatDiscard") return [];
+    return repeatDiscardOptions(pendingCandidates(), human.hand);
+  }
+
   /** True if this rune could legally be added to the Energy list right now
    *  (only Ready runes can pay Energy, and only when the effective Energy
    *  cost is actually nonzero — otherwise every Ready rune would falsely
@@ -2396,7 +2437,7 @@ export function GameBoard({ initialConfig, onMainMenu, seed }: GameBoardProps) {
   // which also puts the actions row out of reach — so the row's own Cancel
   // hides rather than sitting there visibly unpressable (the overlay carries
   // its own Cancel for exactly this window).
-  const modalStepActive = currentStep === "trashCard";
+  const modalStepActive = currentStep === "trashCard" || currentStep === "repeatDiscard";
 
   /** The header's "what do I click next" line for the armed card, phrased
    *  after the Java client's own prompts (ui/BoardController.java:2760-2779),
@@ -2808,6 +2849,30 @@ export function GameBoard({ initialConfig, onMainMenu, seed }: GameBoardProps) {
                 isTargetable
                 inPile
                 onClick={() => setPendingPlay({ ...pendingPlay, trashCardInstanceId: card.instanceId })}
+              />
+            ))}
+          </div>
+        </ChoiceOverlay>
+      )}
+
+      {/* Square Up's "[Repeat] — Discard 1". The cost of a SECOND execution, so
+          it is only asked once the Repeat has been opted into, and the title says
+          which cost is being paid — a bare "choose a card" over a board mid-play
+          reads as the card's own effect. */}
+      {currentStep === "repeatDiscard" && pendingPlay && (
+        <ChoiceOverlay
+          title={`${pendingPlay.card.name} — discard a card to pay its [Repeat]`}
+          onCancel={() => setPendingPlay({ ...pendingPlay, repeatPaid: false })}
+        >
+          <div className="choice-overlay-cards">
+            {pendingRepeatDiscardOptions().map((card) => (
+              <CardView
+                key={card.instanceId}
+                card={card}
+                isSelectable
+                isTargetable
+                inPile
+                onClick={() => setPendingPlay({ ...pendingPlay, repeatDiscardCardInstanceId: card.instanceId })}
               />
             ))}
           </div>

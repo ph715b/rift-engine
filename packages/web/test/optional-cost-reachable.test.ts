@@ -6,11 +6,12 @@ import {
   type GameState,
   type PlayCardAction,
   type RuneCard,
+  type UnitInstance,
   type Domain,
 } from "@rift-engine/engine";
 import { allPresetDecks, presetDeckList } from "@rift-engine/engine";
 import { createNewGame } from "../src/game-setup.js";
-import { costFlagAlternative, OPTIONAL_COST_FLAGS } from "../src/pending-match.js";
+import { costFlagAlternative, OPTIONAL_COST_FLAGS, repeatDiscardOptions } from "../src/pending-match.js";
 
 /**
  * **An optional cost a human can actually PAY.**
@@ -166,6 +167,117 @@ describe("toggling one axis holds every OTHER settled choice fixed", () => {
     // The honest outcome: no button, rather than a button that changes two things.
     const found = costFlagAlternative([candidate({ repeatPaid: true, acceleratePaid: true })], { acceleratePaid: false }, "repeatPaid");
     expect(found, "offered an alternative that flips an axis the player had settled").toBeUndefined();
+  });
+});
+
+describe("Square Up's [Repeat] discard can be chosen, not guessed", () => {
+  /**
+   * **The pool's only [Repeat] whose cost is CARDS rather than resources** — "[Repeat]
+   * — Discard 1". The engine fans out one variant per discardable card, so the
+   * choice of WHICH card was always there in the action; the board had no field
+   * for it, so `matchesPending` compared candidates that differed only in the
+   * discard and `.find` took whichever came first. A player paid the Repeat and
+   * the engine picked their card for them.
+   *
+   * It is a modal step rather than a flag because there is nothing boolean about
+   * it, which is why it outlived the four axes closed alongside it.
+   */
+  const SQUARE_UP = "UNL-017";
+
+  function boardWithSquareUp(): { state: GameState; cardId: string } {
+    const [first, second] = allPresetDecks();
+    const base = createNewGame(
+      { humanDeck: presetDeckList(first!), aiDeck: presetDeckList(second ?? first!), format: "bo1" },
+      7,
+    );
+    const card = createCardInstance(registry.get(SQUARE_UP));
+    // Two spare cards, so "which one" is a real question rather than a forced move.
+    const spare = [createCardInstance(registry.get("OGN-004")), createCardInstance(registry.get("OGN-004"))];
+    const state: GameState = {
+      ...base,
+      phase: "Action",
+      activePlayerIndex: 0,
+      players: [
+        {
+          ...base.players[0]!,
+          hand: [card, ...spare],
+          floatingEnergy: 10,
+          channeled: runes("Fury", 8),
+          // Square Up gives a unit [Assault 4], so without one on the board it is
+          // not playable at all and every assertion below would be about an empty
+          // list. The control in the first case is what surfaced that.
+          baseUnits: [createCardInstance(registry.get("OGN-002")) as UnitInstance],
+        },
+        base.players[1]!,
+      ] as GameState["players"],
+    };
+    return { state, cardId: card.instanceId };
+  }
+
+  it("the ENGINE fans out one variant per discardable card — the precondition", () => {
+    const { state, cardId } = boardWithSquareUp();
+    const repeats = playsOf(state, cardId).filter((a) => a.repeatPaid === true);
+
+    expect(repeats.length, "no repeat variant offered — this test measures nothing").toBeGreaterThan(0);
+    const discards = new Set(repeats.map((a) => a.repeatDiscardCardInstanceId));
+    expect(discards.size, "the engine offered only one card to discard — no choice to express").toBeGreaterThan(1);
+  });
+
+  it("the choice is a real one — the variants differ ONLY in which card is discarded", () => {
+    // What makes the missing field fatal rather than untidy: with everything else
+    // equal, a board that cannot name the discard has no way to tell these apart,
+    // so it takes the first and the player never learns a choice existed.
+    const { state, cardId } = boardWithSquareUp();
+    const repeats = playsOf(state, cardId).filter((a) => a.repeatPaid === true);
+    const [a, b] = repeats;
+    expect(b, "fewer than two repeat variants — nothing to distinguish").toBeDefined();
+
+    expect(a!.repeatDiscardCardInstanceId).not.toBe(b!.repeatDiscardCardInstanceId);
+    expect(a!.targetUnitInstanceId ?? null, "the variants differ in more than the discard").toBe(
+      b!.targetUnitInstanceId ?? null,
+    );
+  });
+
+  it("the card being played is never itself an option", () => {
+    // It is in hand, so a naive hand-filter would offer it. The engine already
+    // excludes it and the board reads the options off the CANDIDATES, which is
+    // what keeps that rule in one place.
+    const { state, cardId } = boardWithSquareUp();
+    const discards = playsOf(state, cardId)
+      .filter((a) => a.repeatPaid === true)
+      .map((a) => a.repeatDiscardCardInstanceId);
+
+    expect(discards, "Square Up was offered as its own discard").not.toContain(cardId);
+  });
+
+  it("the BOARD offers exactly those cards, and not the spell itself", () => {
+    // The half `ui-can-express-every-choice` cannot see: it asks whether the field
+    // is READ, and a list that silently comes back empty reads the field and shows
+    // an overlay with nothing in it — which looks like a card that asks no
+    // question at all.
+    const { state, cardId } = boardWithSquareUp();
+    const candidates = playsOf(state, cardId).filter((a) => a.repeatPaid === true);
+    const hand = state.players[0]!.hand;
+
+    const options = repeatDiscardOptions(candidates, hand);
+
+    expect(options.length, "the discard overlay would be empty").toBeGreaterThan(1);
+    expect(options.map((c) => c.instanceId), "Square Up offered itself as its own discard").not.toContain(cardId);
+    expect(
+      options.every((c) => hand.some((h) => h.instanceId === c.instanceId)),
+      "an option that is not in hand",
+    ).toBe(true);
+  });
+
+  it("offers nothing when the play is not paying a Repeat at all", () => {
+    // The negative. Unpaid candidates carry no discard, so the list must be empty
+    // rather than falling back to the whole hand — an overlay listing every card
+    // would invite a discard the play never asked for.
+    const { state, cardId } = boardWithSquareUp();
+    const unpaid = playsOf(state, cardId).filter((a) => (a.repeatPaid ?? false) === false);
+    expect(unpaid.length, "no unpaid variant — nothing to check").toBeGreaterThan(0);
+
+    expect(repeatDiscardOptions(unpaid, state.players[0]!.hand)).toEqual([]);
   });
 });
 

@@ -71,8 +71,30 @@ function webSourceFiles(dir: string): string[] {
  *  deliberately WEAK test: mentioning a field is the floor, not proof the choice
  *  is offered well. A field nothing mentions is proof it is not offered. */
 function fieldsTheUiMentions(): Set<string> {
-  const all = webSourceFiles(WEB_SRC).map((f) => readFileSync(f, "utf8")).join("\n");
+  const all = webSourceFiles(WEB_SRC).map((f) => stripComments(readFileSync(f, "utf8"))).join("\n");
   return new Set(choiceFields().filter((field) => new RegExp(`\\b${field}\\b`).test(all)));
+}
+
+/**
+ * Source with its comments removed.
+ *
+ * **A field named only in PROSE is not a field the UI reads**, and until
+ * 2026-08-26 nothing here could tell the difference. A doc comment explaining why
+ * `repeatDiscardCardInstanceId` is deliberately NOT `discardCardInstanceId`
+ * mentioned the latter, and that alone moved it out of the declared gaps and into
+ * "the board handles this". Nothing about the board had changed.
+ *
+ * It surfaced as a STALE-gap failure, which is the harmless direction. The
+ * dangerous one is the same mechanism quietly satisfying the UNDECLARED gate — a
+ * real gap excused by a comment that happens to name its field, which is exactly
+ * the silence this whole file exists to break.
+ *
+ * Crude on purpose: a `//` inside a string literal cuts the rest of that line.
+ * That costs nothing here, because what is being searched for is an identifier
+ * and losing the tail of a URL cannot hide one.
+ */
+function stripComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
 }
 
 /**
@@ -104,7 +126,7 @@ const KNOWN_GAPS: Record<string, string> = {
     "WHICH friendly gear to spend — 2 cards (Zaun Punk kills one, Legion Quartermaster returns one to hand).",
   destinationIsBase: "Carried by the action and never read here; the board uses `destinationBattlefieldId` plus a BASE sentinel instead.",
   // **Six gaps this instrument found the day it arrived on this branch, all of
-  // them opened while it was absent — FOUR of them closed the same day.** It was
+  // them opened while it was absent — FIVE of them closed the same day.** It was
   // written on master on 2026-08-08;
   // this branch forked the same day and only merged it back on 2026-08-26, and
   // every field below was added to `PlayCardAction` during Unleashed or Vendetta
@@ -117,10 +139,9 @@ const KNOWN_GAPS: Record<string, string> = {
   //
   // `replacedCostPaid`, `optionalXpPaid`, `dragonRoostPaid` and `exhaustLegendPaid`
   // were deleted on 2026-08-26: they are booleans, and `OPTIONAL_COST_FLAGS` is a
-  // LIST, so each cost one line. The two below are not booleans, which is the
-  // whole reason they are still here.
-  repeatDiscardCardInstanceId:
-    "WHICH card to discard to buy a second [Repeat] execution. Distinct from `discardCardInstanceId`, which is a discount a card BUYS with a discard — a play can owe both.",
+  // LIST, so each cost one line. `repeatDiscardCardInstanceId` followed as a
+  // modal step, the shape `trashCard` already had. The ONE below is neither a
+  // boolean nor a single pick, which is why it is still here.
   repeatExecutions:
     "The per-instance choices for a multi-[Repeat] play (820.1.c.2 — each cost paid or not paid individually). The board can pay a Repeat but cannot vary what each execution does.",
 };

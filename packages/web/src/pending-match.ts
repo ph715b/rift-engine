@@ -241,3 +241,24 @@ export function costFlagAlternative(
       OPTIONAL_COST_FLAGS.every((f) => f.key === key || (a[f.key] ?? false) === (pending[f.key] ?? false)),
   );
 }
+
+/**
+ * The cards in hand that can pay a card-costed `[Repeat]` — Square Up's
+ * "[Repeat] — Discard 1".
+ *
+ * Resolved from the CANDIDATES rather than from a rule re-derived here. The card
+ * being played is itself in hand and must never be its own discard; the engine
+ * already knows that, and reading the answer off what it enumerated is what keeps
+ * the rule in one place instead of two that can disagree.
+ *
+ * Lifted out of `GameBoard` for the reason `costFlagAlternative` was: a list that
+ * silently comes back empty renders an overlay with nothing in it, which is
+ * indistinguishable from a card that asks no such question.
+ */
+export function repeatDiscardOptions<T extends { instanceId: string }>(
+  candidates: readonly PlayCardAction[],
+  hand: readonly T[],
+): T[] {
+  const eligible = new Set(candidates.map((a) => a.repeatDiscardCardInstanceId));
+  return hand.filter((c) => eligible.has(c.instanceId));
+}
