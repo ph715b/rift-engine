@@ -1,4 +1,4 @@
-import type { PlayCardAction } from "@rift-engine/engine";
+import { repeatExecutionsOf, type PlayCardAction } from "@rift-engine/engine";
 
 /** The subset of an armed play's choices that this module compares. */
 export interface PendingXChoice {
@@ -261,4 +261,56 @@ export function repeatDiscardOptions<T extends { instanceId: string }>(
 ): T[] {
   const eligible = new Set(candidates.map((a) => a.repeatDiscardCardInstanceId));
   return hand.filter((c) => eligible.has(c.instanceId));
+}
+
+/** The `[Repeat]` instances a candidate pays, sorted — its identity for the
+ *  subset comparison below. `repeatExecutionsOf` normalises the two spellings, so
+ *  a single-instance card's `repeatPaid` reads as `[0]` and nothing here has to
+ *  know which spelling the enumerator chose. */
+export function paidRepeatInstances(play: PlayCardAction): number[] {
+  return repeatExecutionsOf(play)
+    .map((e) => e.instance)
+    .sort((a, b) => a - b);
+}
+
+/**
+ * Does this candidate pay exactly the `[Repeat]` instances the player picked?
+ *
+ * **820.1.c.2 — "if a spell or ability has more than one instance of Repeat, each
+ * Cost may be paid or not paid individually".** UNL-182 Curtain Call is the pool's
+ * only card that prints more than one, at three DIFFERENT prices, so "how many"
+ * does not describe the play: paying the cheap instance and paying the dear one
+ * buy the same extra execution for different runes.
+ *
+ * An UNSET pick matches everything, the same distinction `matchesPendingCostFilter`
+ * draws — before the player has chosen, every subset is still live, and treating
+ * that as "pays none" would drop every paid variant the moment the card is armed.
+ */
+export function matchesRepeatInstances(
+  candidate: PlayCardAction,
+  picked: readonly number[] | undefined,
+): boolean {
+  if (picked === undefined) return true;
+  const paid = paidRepeatInstances(candidate);
+  const want = [...picked].sort((a, b) => a - b);
+  return paid.length === want.length && paid.every((v, i) => v === want[i]);
+}
+
+/**
+ * A `[Repeat]` instance's price, short enough for a button.
+ *
+ * The price is the whole point of naming the instance: Curtain Call's three are
+ * `[1]`, `[rainbow]` and `[1][rainbow]`, and a button reading "Repeat #2" would
+ * make the player guess which one they were buying. The middle instance really
+ * does ask for ZERO Energy, so an empty Energy part is a price rather than a
+ * placeholder and must not render as "[0]".
+ */
+export function repeatCostLabel(cost: { energy?: number; power?: number; rainbowPower?: number; domain?: string }): string {
+  const parts: string[] = [];
+  if ((cost.energy ?? 0) > 0) parts.push(`[${cost.energy}]`);
+  if ((cost.rainbowPower ?? 0) > 0) parts.push("[rainbow]".repeat(cost.rainbowPower ?? 0));
+  if ((cost.power ?? 0) > 0 && cost.domain) parts.push(`[${cost.domain}]`.repeat(cost.power ?? 0));
+  // Every instance in the pool prices something; an empty label would be a table
+  // entry with no cost, which is a bug rather than a free repeat.
+  return parts.length > 0 ? parts.join("") : "free";
 }

@@ -3,6 +3,8 @@ import {
   createCardInstance,
   defaultCardRegistry,
   legalActions,
+  repeatCostsOf,
+  repeatExecutionsOf,
   type GameState,
   type PlayCardAction,
   type RuneCard,
@@ -11,7 +13,14 @@ import {
 } from "@rift-engine/engine";
 import { allPresetDecks, presetDeckList } from "@rift-engine/engine";
 import { createNewGame } from "../src/game-setup.js";
-import { costFlagAlternative, OPTIONAL_COST_FLAGS, repeatDiscardOptions } from "../src/pending-match.js";
+import {
+  costFlagAlternative,
+  matchesRepeatInstances,
+  OPTIONAL_COST_FLAGS,
+  paidRepeatInstances,
+  repeatCostLabel,
+  repeatDiscardOptions,
+} from "../src/pending-match.js";
 
 /**
  * **An optional cost a human can actually PAY.**
@@ -278,6 +287,182 @@ describe("Square Up's [Repeat] discard can be chosen, not guessed", () => {
     expect(unpaid.length, "no unpaid variant — nothing to check").toBeGreaterThan(0);
 
     expect(repeatDiscardOptions(unpaid, state.players[0]!.hand)).toEqual([]);
+  });
+});
+
+describe("Curtain Call's three [Repeat] prices are separately payable", () => {
+  /**
+   * **820.1.c.2 — "if a spell or ability has more than one instance of Repeat,
+   * each Cost may be paid or not paid individually".** UNL-182 Curtain Call is the
+   * pool's only card that prints more than one: three, at `[1]`, `[rainbow]` and
+   * `[1][rainbow]`. So "how many" does not describe the play — paying the cheap
+   * instance and paying the dear one buy the same extra execution for different
+   * runes, which is exactly why a single `repeatPaid` boolean cannot say it.
+   *
+   * The engine enumerates all eight subsets. The board could reach exactly one of
+   * them, because `repeatPaid` is the one-instance spelling and Curtain Call's
+   * candidates carry `repeatExecutions` instead — so its repeat button never
+   * rendered at all, and the card was playable only with no repeat.
+   */
+  const CURTAIN_CALL = "UNL-182";
+
+  const enemy = (instanceId: string): UnitInstance => ({
+    ...(createCardInstance(registry.get("OGN-002")) as UnitInstance),
+    instanceId,
+    might: 9,
+  });
+
+  function boardWithCurtainCall(): { state: GameState; cardId: string } {
+    const [first, second] = allPresetDecks();
+    const base = createNewGame(
+      { humanDeck: presetDeckList(first!), aiDeck: presetDeckList(second ?? first!), format: "bo1" },
+      11,
+    );
+    const card = createCardInstance(registry.get(CURTAIN_CALL));
+    const domains = ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"] as const;
+    const state: GameState = {
+      ...base,
+      phase: "Action",
+      activePlayerIndex: 0,
+      players: [
+        {
+          ...base.players[0]!,
+          hand: [card],
+          floatingEnergy: 12,
+          // Rainbow prices need several DOMAINS present, not merely several runes.
+          channeled: domains.flatMap((d, i) => runes(d, 2).map((r) => ({ ...r, id: `${d}-${i}-${r.id}` }))),
+          deck: [createCardInstance(registry.get(CURTAIN_CALL)), createCardInstance(registry.get(CURTAIN_CALL))],
+        },
+        { ...base.players[1]!, baseUnits: [enemy("backline")] },
+      ] as GameState["players"],
+    };
+    // Curtain Call chooses a mode it has NOT already chosen (820.2 gives each
+    // execution its own choices), so the number of legal TARGETS bounds how many
+    // executions can be bought. With one enemy unit the board affords only single
+    // instances — measured, after a hardcoded two-instance pick failed here.
+    return {
+      state: {
+        ...state,
+        battlefields: state.battlefields.map((b, i) =>
+          i === 0 ? { ...b, units: { ...b.units, [state.players[1]!.id]: [enemy("front")] } } : b,
+        ),
+      },
+      cardId: card.instanceId,
+    };
+  }
+
+  const subsetsOffered = (state: GameState, cardId: string) =>
+    new Set(playsOf(state, cardId).map((p) => paidRepeatInstances(p).join(",")));
+
+  it("the ENGINE offers more than one subset — the precondition", () => {
+    const { state, cardId } = boardWithCurtainCall();
+
+    expect(playsOf(state, cardId).length, "Curtain Call was not playable — this measures nothing").toBeGreaterThan(0);
+    expect(subsetsOffered(state, cardId).size, "only one subset offered — no choice to express").toBeGreaterThan(1);
+  });
+
+  it("an unset pick matches every subset, so arming the card drops nothing", () => {
+    // The distinction that makes an empty array mean something different from
+    // "not yet chosen". Collapsing them would filter every paid variant away the
+    // moment the card was armed — which is how it ended up unrepeatable.
+    const { state, cardId } = boardWithCurtainCall();
+    const all = playsOf(state, cardId);
+
+    expect(all.every((a) => matchesRepeatInstances(a, undefined)), "an unset pick excluded a candidate").toBe(true);
+    expect(
+      all.filter((a) => matchesRepeatInstances(a, [])).length,
+      "paying NONE matched everything — the empty array is being read as unset",
+    ).toBeLessThan(all.length);
+  });
+
+  it("picking one instance reaches candidates that pay exactly it", () => {
+    const { state, cardId } = boardWithCurtainCall();
+    const all = playsOf(state, cardId);
+
+    for (const instance of [0, 1, 2]) {
+      const matched = all.filter((a) => matchesRepeatInstances(a, [instance]));
+      expect(matched.length, `no candidate pays instance ${instance} alone`).toBeGreaterThan(0);
+      for (const a of matched) expect(paidRepeatInstances(a)).toEqual([instance]);
+    }
+  });
+
+  it("order does not matter — a pick is a SET, not a sequence", () => {
+    // The toggles append in CLICK order, so the pick arrives unsorted. A
+    // comparison that respected order would make the same subset reachable or not
+    // depending on which button was pressed first.
+    //
+    // The pair is taken from what this board actually AFFORDS rather than named
+    // outright: the three instances have three different prices, and which
+    // combinations are payable is the engine's business. Hardcoding [0,2] failed
+    // here for exactly that reason — a fact about the fixture, not about order.
+    const { state, cardId } = boardWithCurtainCall();
+    const all = playsOf(state, cardId);
+    const pair = [...subsetsOffered(state, cardId)]
+      .map((key) => key.split(",").filter(Boolean).map(Number))
+      .find((subset) => subset.length === 2);
+    expect(pair, "this board affords no two-instance subset — nothing to reorder").toBeDefined();
+
+    const forward = all.filter((a) => matchesRepeatInstances(a, pair!)).length;
+    const reversed = all.filter((a) => matchesRepeatInstances(a, [...pair!].reverse())).length;
+
+    expect(forward, "the offered subset matched nothing").toBeGreaterThan(0);
+    expect(reversed, "click order changed which candidates matched").toBe(forward);
+  });
+
+  it("labels each instance by its PRICE, and the zero-Energy one is not [0]", () => {
+    // Curtain Call's middle instance asks for no Energy at all — a price, not a
+    // placeholder. A button reading "[0][rainbow]" would claim a cost the card
+    // does not print, and "Repeat #2" would make the player guess which they were
+    // buying when the three differ only in price.
+    const [cheap, rainbowOnly, both] = repeatCostsOf(CURTAIN_CALL);
+
+    expect(repeatCostLabel(cheap!)).toBe("[1]");
+    expect(repeatCostLabel(rainbowOnly!), "the zero-Energy instance rendered its zero").toBe("[rainbow]");
+    expect(repeatCostLabel(both!)).toBe("[1][rainbow]");
+  });
+
+  /**
+   * **The half that is still open, pinned so closing it fails loudly.**
+   *
+   * 820.2 gives every additional execution its own Make Relevant Choices step, and
+   * 820.2.a's worked example is Rocket Barrage choosing a different MODE the second
+   * time. So a subset does not describe the play either: with the instances picked,
+   * the executions still differ in what they each do.
+   *
+   * The board has no field for that, so `matchesPending` cannot tell these
+   * candidates apart and `.find` takes whichever the engine enumerated first. The
+   * player buys a second execution and the engine chooses what it does.
+   *
+   * This asserts the WRONG answer on purpose — the repo's rule for a recorded
+   * divergence. When per-execution choices become expressible, the count below
+   * drops to 1 and this test fails, which is the point: a silent fix is how a gap
+   * stops being tracked. See docs/rules-conformance.md.
+   */
+  it("DIVERGENCE: with the subset picked, each execution's own choices are still arbitrary", () => {
+    const { state, cardId } = boardWithCurtainCall();
+    const all = playsOf(state, cardId);
+
+    const oneInstance = all.filter((a) => matchesRepeatInstances(a, [0]));
+    expect(oneInstance.length, "no candidate pays instance 0 alone — the pin measures nothing").toBeGreaterThan(0);
+
+    // Same base mode AND same instance paid, differing only in what that
+    // execution does. More than one means the board must guess.
+    const byBaseMode = oneInstance.filter((a) => a.modeId === oneInstance[0]!.modeId);
+    expect(
+      byBaseMode.length,
+      "per-execution choices became expressible — narrow the KNOWN_GAPS entry and update rules-conformance.md",
+    ).toBeGreaterThan(1);
+
+    const executionChoices = new Set(
+      byBaseMode.map((a) => JSON.stringify(repeatExecutionsOf(a).map((e) => e.choices ?? null))),
+    );
+    expect(executionChoices.size, "the candidates do not actually differ in their execution choices").toBeGreaterThan(1);
+  });
+
+  it("a single-instance card gets no per-instance toggles at all", () => {
+    // The other twenty keep the `repeatPaid` boolean. Rendering three buttons for
+    // a card that prints one Repeat would be worse than the gap was.
+    expect(repeatCostsOf("SFD-031").length, "Desert's Call stopped printing exactly one Repeat").toBe(1);
   });
 });
 

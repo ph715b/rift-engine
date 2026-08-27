@@ -143,7 +143,7 @@ const KNOWN_GAPS: Record<string, string> = {
   // modal step, the shape `trashCard` already had. The ONE below is neither a
   // boolean nor a single pick, which is why it is still here.
   repeatExecutions:
-    "The per-instance choices for a multi-[Repeat] play (820.1.c.2 — each cost paid or not paid individually). The board can pay a Repeat but cannot vary what each execution does.",
+    "**Narrowed 2026-08-26.** WHICH instances to pay is now choosable — one toggle per printed [Repeat], labelled with its price (820.1.c.2). What remains is 820.2: each execution gets its own Make Relevant Choices step, so a second execution may name a different mode and different targets, and the board still takes whichever the engine enumerated first. UNL-182 Curtain Call alone, 12 candidates per subset. Pinned in optional-cost-reachable.test.ts and recorded in docs/rules-conformance.md.",
 };
 
 describe("the board can express every choice the engine offers", () => {

@@ -23,6 +23,7 @@ import {
   actingPlayerIndex,
   dealOpeningHands,
   describeChain,
+  repeatCostsOf,
   executeMulligan,
   legalActions,
   matchesPowerDomain,
@@ -86,6 +87,9 @@ import {
   matchesPendingChoices,
   costFlagAlternative as findCostFlagAlternative,
   matchesPendingCostFilter,
+  matchesRepeatInstances,
+  repeatCostLabel,
+  paidRepeatInstances,
   repeatDiscardOptions,
   type PendingOptionalCosts,
   modeFilterAllows,
@@ -227,6 +231,21 @@ interface PendingPlay extends PendingOptionalCosts {
    * one silently pay for the other.
    */
   repeatDiscardCardInstanceId?: string;
+  /**
+   * Which printed `[Repeat]` instances this play is paying, by index into
+   * `repeatCostsOf(defId)`.
+   *
+   * **Only a card printing MORE THAN ONE needs it**, which in this pool is
+   * UNL-182 Curtain Call alone — three instances at three different prices, so
+   * `repeatPaid`'s single boolean cannot say which was bought (820.1.c.2). Every
+   * other card keeps the boolean, and `repeatExecutionsOf` normalises the two
+   * spellings so nothing downstream has to know which was used.
+   *
+   * `undefined` means NOT YET CHOSEN and matches every subset; an empty array
+   * means the player has decided to pay none. Collapsing those two would drop
+   * every paid variant the moment the card was armed.
+   */
+  repeatInstances?: readonly number[];
   /** **Vestigial since 2026-08-25** and always undefined. `[Vision]`'s recycle is
    *  a parked engine decision now (`vision-predict`), asked at resolution per
    *  817.2.a rather than chosen as part of the play. Kept only so a `PlayCardAction`
@@ -1183,6 +1202,7 @@ export function GameBoard({ initialConfig, onMainMenu, seed }: GameBoardProps) {
       }
       if (pending.targetBattlefieldId !== undefined && a.targetBattlefieldId !== pending.targetBattlefieldId) return false;
       if (pending.trashCardInstanceId !== undefined && a.trashCardInstanceId !== pending.trashCardInstanceId) return false;
+      if (!matchesRepeatInstances(a, pending.repeatInstances)) return false;
       if (
         pending.repeatDiscardCardInstanceId !== undefined &&
         a.repeatDiscardCardInstanceId !== pending.repeatDiscardCardInstanceId
@@ -1364,7 +1384,9 @@ export function GameBoard({ initialConfig, onMainMenu, seed }: GameBoardProps) {
         (a.targetBattlefieldId ?? null) === (pending.targetBattlefieldId ?? null) &&
         (a.trashCardInstanceId ?? null) === (pending.trashCardInstanceId ?? null) &&
       (a.repeatDiscardCardInstanceId ?? null) === (pending.repeatDiscardCardInstanceId ?? null) &&
+      matchesRepeatInstances(a, pending.repeatInstances) &&
         (a.repeatDiscardCardInstanceId ?? null) === (pending.repeatDiscardCardInstanceId ?? null) &&
+        matchesRepeatInstances(a, pending.repeatInstances) &&
         (a.additionalCostUnitInstanceId ?? null) === (pending.additionalCostUnitInstanceId ?? null) &&
         (a.destinationBattlefieldId ?? BASE_ZONE_ID) === (pending.destinationBattlefieldId ?? BASE_ZONE_ID) &&
         (a.fromHiddenBattlefieldId ?? null) === (pending.fromHiddenBattlefieldId ?? null) &&
@@ -1523,6 +1545,50 @@ export function GameBoard({ initialConfig, onMainMenu, seed }: GameBoardProps) {
    *  `pending-match.ts`. */
   function costFlagAlternative(key: OptionalCostKey): PlayCardAction | undefined {
     return pendingPlay ? findCostFlagAlternative(pendingCandidates(), pendingPlay, key) : undefined;
+  }
+
+  /**
+   * The per-instance `[Repeat]` toggles for a card printing more than one.
+   *
+   * Empty for every card but UNL-182 Curtain Call, the pool's only one — so this
+   * renders nothing in an ordinary game, and the single-instance `repeatPaid`
+   * button in `OPTIONAL_COST_FLAGS` keeps handling the other twenty.
+   *
+   * An instance is offered only when a candidate paying exactly the resulting
+   * subset exists right now: 820.1.c.3 lets each cost be paid once, and the
+   * player may simply not be able to afford all three. Asking the CANDIDATES
+   * rather than the price is what keeps affordability in the engine.
+   */
+  function repeatInstanceToggles(): { instance: number; label: string; paid: boolean; available: boolean }[] {
+    const pending = pendingPlay;
+    if (!pending) return [];
+    const costs = repeatCostsOf(pending.card.defId);
+    if (costs.length <= 1) return [];
+    const picked = pending.repeatInstances ?? [];
+    const candidates = pendingCandidates();
+    return costs.map((cost, instance) => {
+      const paid = picked.includes(instance);
+      const want = paid ? picked.filter((i) => i !== instance) : [...picked, instance];
+      return {
+        instance,
+        label: repeatCostLabel(cost),
+        paid,
+        available: candidates.some((a) => matchesRepeatInstances(a, want)),
+      };
+    });
+  }
+
+  /** Adds or removes one `[Repeat]` instance from the armed play, clearing the
+   *  payment for the reason `toggleCostFlag` does: the variants owe different
+   *  runes, and a part-paid proposal would sit committed against a cost that no
+   *  longer exists. */
+  function toggleRepeatInstance(instance: number) {
+    setPendingPlay((prev) => {
+      if (!prev) return prev;
+      const picked = prev.repeatInstances ?? [];
+      const next = picked.includes(instance) ? picked.filter((i) => i !== instance) : [...picked, instance];
+      return { ...prev, repeatInstances: next, payment: { energyRunes: [], powerRunes: [] } };
+    });
   }
 
   /**
@@ -3298,6 +3364,17 @@ export function GameBoard({ initialConfig, onMainMenu, seed }: GameBoardProps) {
             Each button renders only when the armed card genuinely has BOTH
             variants available right now, with every other settled choice held
             fixed — so a card with no repeat form shows no repeat button. */}
+        {/* One button per PRINTED [Repeat] instance, for the one card that prints
+            more than one. 820.1.c.2 makes each separately payable and they are at
+            three different prices, so the label carries the PRICE — "Repeat #2"
+            would make the player guess which one they were buying. */}
+        {repeatInstanceToggles().map(({ instance, label, paid, available }) =>
+          available ? (
+            <button key={`repeat-${instance}`} onClick={() => toggleRepeatInstance(instance)}>
+              {paid ? `Don't repeat ${label}` : `Repeat ${label}`}
+            </button>
+          ) : null,
+        )}
         {pendingPlay &&
           OPTIONAL_COST_FLAGS.map(({ key, on, off }) =>
             costFlagAlternative(key) ? (
