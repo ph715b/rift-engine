@@ -164,6 +164,33 @@ export function scoreHolds(state: GameState, playerIndex: 0 | 1): GameState {
  * Mirrors ScoringSystem.recordConquest (engine/ScoringSystem.java:136-195),
  * minus every named-card conquest-trigger dispatch and blocking check.
  */
+/**
+ * Stamps every unit `playerIndex` has at `battlefieldId` as having conquered.
+ *
+ * A separate pass rather than a field written by `updateControl`, because control
+ * moving and the units present are two different facts and only this one is about
+ * the units. Idempotent: a second conquest of the same battlefield in one turn
+ * re-marks the same units, and the flag is a boolean rather than a count because
+ * nothing asks HOW MANY times.
+ */
+function markConquerors(state: GameState, playerIndex: 0 | 1, battlefieldId: string): GameState {
+  const ownerId = state.players[playerIndex].id;
+  return {
+    ...state,
+    battlefields: state.battlefields.map((bf) =>
+      bf.id !== battlefieldId
+        ? bf
+        : {
+            ...bf,
+            units: {
+              ...bf.units,
+              [ownerId]: (bf.units[ownerId] ?? []).map((u) => ({ ...u, conqueredThisTurn: true })),
+            },
+          },
+    ),
+  };
+}
+
 export function recordConquest(
   state: GameState,
   playerIndex: 0 | 1,
@@ -194,6 +221,22 @@ export function recordConquest(
     ...p,
     scoredBattlefieldsThisTurn: alreadyScored ? p.scoredBattlefieldsThisTurn : [...p.scoredBattlefieldsThisTurn, battlefieldId],
   }));
+
+  // **383.4.c.2.a — the units PRESENT for this moment are the ones that
+  // conquered.** "The Conquer Abilities of Units are put on the Chain as Pending
+  // Items after the Unit(s) these effects correspond to are present at a
+  // Battlefield when a player gains control of it and gains 1 Victory Point from
+  // Conquering."
+  //
+  // Marked here because here is the only place that knows WHO was standing at the
+  // battlefield at the instant control moved. Anything asking later — an
+  // end-of-turn band, a held trigger — is asking about a board that has moved on,
+  // which is exactly how Blighted Battleaxe came to kill a wearer that conquered
+  // and then pulled back to base.
+  //
+  // Only the CONQUEROR's units: an enemy unit standing there did not conquer, and
+  // `conqueredBattlefieldsThisTurn` beside it is likewise the conqueror's list.
+  next = markConquerors(next, playerIndex, battlefieldId);
 
   // The conqueror's LEGEND watches this moment too (Garen - Might of Demacia,
   // Sett - The Boss), and is now held by the same call rather than dispatched

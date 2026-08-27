@@ -322,6 +322,24 @@ export interface UnitInstance extends CardInstanceBase, EmpowerableInstance {
    * runEnd alongside it.
    */
   movesThisTurn: number;
+  /**
+   * Was this unit PRESENT at a battlefield its controller conquered this turn?
+   *
+   * **383.4.c.2.a is the sentence**: a Unit's Conquer Ability triggers when "the
+   * Unit(s) these effects correspond to are present at a Battlefield when a player
+   * gains control of it and gains 1 Victory Point from Conquering". That makes
+   * conquering a fact about a MOMENT the unit was present for, not about where it
+   * happens to stand afterwards.
+   *
+   * The engine answered it positionally until 2026-08-26 — "am I standing where my
+   * controller conquered" — because conquests were recorded only per player. Both
+   * halves of that were wrong in play: a unit that conquered and then walked home
+   * read as never having conquered (reported from playtesting, Blighted Battleaxe
+   * killing its wearer), and one that walked in AFTER the conquest read as having.
+   *
+   * Cleared with the rest of the per-turn tallies in `turn-manager`.
+   */
+  conqueredThisTurn?: boolean;
 }
 
 export interface SpellInstance extends CardInstanceBase {

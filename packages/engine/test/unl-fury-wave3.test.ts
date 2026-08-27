@@ -348,8 +348,18 @@ describe("Blighted Battleaxe (UNL-019): at the end of your turn, if I didn't con
     const state = makeState({ phase: "Action", activePlayerIndex: 0 });
     state.battlefields[0]!.units = { p1: [wearer] };
     state.players[0]!.activeGear = [axe];
-    if (conqueredHere) state.players[0]!.conqueredBattlefieldsThisTurn = ["bf1"];
-    return { state, axe, wearer };
+    // **A REAL conquest, not a hand-set list.** This wrote
+    // `conqueredBattlefieldsThisTurn = ["bf1"]` directly until 2026-08-26, which
+    // is the POSITIONAL shortcut the card was implemented with — so the fixture
+    // and the implementation shared one assumption and the test could not see
+    // past it. 383.4.c.2.a asks whether the UNIT was present when control moved,
+    // and only `recordConquest` knows that; going through it means the setup
+    // cannot drift from what a conquest actually does.
+    return {
+      state: conqueredHere ? recordConquest(state, 0, "bf1") : state,
+      axe,
+      wearer,
+    };
   }
 
   const axeIn = (state: GameState, playerIndex: 0 | 1, instanceId: string): GearInstance | undefined =>
@@ -366,6 +376,138 @@ describe("Blighted Battleaxe (UNL-019): at the end of your turn, if I didn't con
 
     expect(axeIn(after, 0, axe.instanceId)!.attachedToInstanceId, "'unattach this' never happened").toBeNull();
     expect(unitAt(after, "wearer")!.damage, "'deal 4 to me' never landed").toBe(4);
+  });
+
+  /**
+   * **Reported from playtesting, 2026-08-26**: "Blighted Battleaxe kills the unit
+   * at the end of my turn even though it conquered a battlefield this turn. This
+   * happened when I moved my unit from the battlefield to my base after
+   * conquering it."
+   *
+   * The diagnosis in the report was exactly right — the engine did not think the
+   * unit had conquered, because it was in base. "Did I conquer" was answered
+   * POSITIONALLY, as "am I standing where my controller conquered", and this
+   * card's own comment defended a wearer in base as "therefore never conquered".
+   *
+   * **383.4.c.2.a says the opposite**: a Unit's Conquer Ability corresponds to the
+   * "Unit(s) ... present at a Battlefield when a player gains control of it and
+   * gains 1 Victory Point from Conquering". Presence at the MOMENT is the whole
+   * test; where the unit stands afterwards is not part of it.
+   *
+   * Conquering and then pulling back to defend your base is ordinary play, which
+   * is why the divergence being filed as "narrow" in 2026-08-09 was the wrong
+   * call — it needed a playtester rather than an instrument to say so.
+   */
+  it("a wearer that conquered and then walked HOME still counts as having conquered", () => {
+    const { state, axe } = board(true);
+    // The control: it really did conquer while standing there.
+    expect(unitAt(state, "wearer")!.conqueredThisTurn, "the fixture never marked the conquest").toBe(true);
+
+    // Now pull it home — the exact move in the report.
+    const home: GameState = {
+      ...state,
+      battlefields: state.battlefields.map((bf, i) => (i === 0 ? { ...bf, units: { p1: [] } } : bf)),
+      players: [
+        { ...state.players[0]!, baseUnits: [unitAt(state, "wearer")!] },
+        state.players[1]!,
+      ] as GameState["players"],
+    };
+
+    const after = resolveHeldTriggers(runEnd(home));
+
+    expect(
+      axeIn(after, 0, axe.instanceId)!.attachedToInstanceId,
+      "the axe unattached from a wearer that HAD conquered",
+    ).toBe("wearer");
+    const wearerAfter =
+      after.players[0]!.baseUnits.find((u) => u.instanceId === "wearer") ?? unitAt(after, "wearer");
+    expect(wearerAfter!.damage, "the axe dealt 4 to a wearer that had conquered").toBe(0);
+  });
+
+  /**
+   * The OTHER half of the same divergence, and it was wrong in the generous
+   * direction: a unit that arrives after the conquest used to read as having
+   * conquered, because it was standing on a battlefield its controller had taken
+   * earlier in the turn. 383.4.c.2.a requires presence at the moment.
+   */
+  it("a wearer that walked IN after the conquest did NOT conquer", () => {
+    const { state, axe } = board(true);
+    const latecomer = makeUnit({ instanceId: "latecomer", might: 12 });
+    const moved: GameState = {
+      ...state,
+      battlefields: state.battlefields.map((bf, i) =>
+        i === 0 ? { ...bf, units: { p1: [latecomer] } } : bf,
+      ),
+      players: [
+        { ...state.players[0]!, activeGear: [{ ...axe, attachedToInstanceId: "latecomer" }] },
+        state.players[1]!,
+      ] as GameState["players"],
+    };
+
+    const after = resolveHeldTriggers(runEnd(moved));
+
+    expect(
+      axeIn(after, 0, axe.instanceId)!.attachedToInstanceId,
+      "a unit that missed the conquest kept the axe",
+    ).toBeNull();
+    expect(unitAt(after, "latecomer")!.damage, "'deal 4 to me' never landed on the latecomer").toBe(4);
+  });
+
+  /**
+   * **The mutant a one-battlefield fixture cannot kill.** Conquering bf1 must mark
+   * the units AT bf1 and nobody else — a pass that marked every battlefield left
+   * every assertion above green, because there was nothing standing anywhere else.
+   *
+   * It matters beyond tidiness: a garrison sitting at an untouched battlefield
+   * would read as having conquered, and its axe would never come off.
+   */
+  it("conquering one battlefield does not mark units standing at ANOTHER", () => {
+    const elsewhere = makeUnit({ instanceId: "elsewhere", might: 12 });
+    const wearer = makeUnit({ instanceId: "wearer", might: 12 });
+    const state = makeState({ phase: "Action", activePlayerIndex: 0 });
+    state.battlefields[0]!.units = { p1: [wearer] };
+    state.battlefields[1]!.units = { p1: [elsewhere] };
+
+    const after = recordConquest(state, 0, "bf1");
+
+    expect(unitAt(after, "wearer")!.conqueredThisTurn, "the unit that WAS there was not marked").toBe(true);
+    expect(
+      unitAt(after, "elsewhere")?.conqueredThisTurn ?? false,
+      "a unit at an untouched battlefield was marked as having conquered",
+    ).toBe(false);
+  });
+
+  /** And not the OPPONENT's units standing at the battlefield that was taken from
+   *  them. They were present, and they did not conquer — 383.4.c.2.a attributes it
+   *  to the player who gains control. */
+  it("does not mark the units it took the battlefield FROM", () => {
+    const mine = makeUnit({ instanceId: "mine", might: 12 });
+    const theirs = makeUnit({ instanceId: "theirs", might: 1 });
+    const state = makeState({ phase: "Action", activePlayerIndex: 0 });
+    state.battlefields[0]!.units = { p1: [mine], p2: [theirs] };
+
+    const after = recordConquest(state, 0, "bf1");
+
+    expect(unitAt(after, "mine")!.conqueredThisTurn).toBe(true);
+    expect(
+      unitAt(after, "theirs")?.conqueredThisTurn ?? false,
+      "the defender was credited with the conquest that dispossessed it",
+    ).toBe(false);
+  });
+
+  /** The flag is a per-turn tally like every other, and must not outlive its
+   *  turn — otherwise one conquest makes the wearer immortal, which is the same
+   *  bug in the quieter direction. */
+  it("the conquest mark expires with the turn", () => {
+    const { state } = board(true);
+    expect(unitAt(state, "wearer")!.conqueredThisTurn).toBe(true);
+
+    const next = runEnd(state);
+
+    expect(
+      unitAt(next, "wearer")?.conqueredThisTurn ?? false,
+      "the conquest mark survived the turn that made it",
+    ).toBe(false);
   });
 
   it("NEGATIVE CONTROL: a wearer that conquered this turn keeps the axe and takes nothing", () => {

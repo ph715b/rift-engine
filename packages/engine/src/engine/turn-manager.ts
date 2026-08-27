@@ -500,6 +500,12 @@ export function runEnd(state: GameState): GameState {
     // Miss Fortune - Captain's "the first time I move EACH TURN" — the memory
     // has to be per unit and has to expire, exactly like the two above.
     ...("movesThisTurn" in u ? { movesThisTurn: 0 } : {}),
+    // **383.4.c.2.a's per-unit conquest**, swept with its neighbours because "this
+    // turn" means the same thing here as it does for every field around it. A flag
+    // that outlived its turn would keep Blighted Battleaxe's wearer alive forever
+    // after one conquest — the opposite of the bug it was added to fix, and the
+    // quieter direction, which is why it is deleted rather than left to a reader.
+    ...("conqueredThisTurn" in u ? { conqueredThisTurn: undefined } : {}),
     // Dragon Form's "its base Might becomes 5 THIS TURN". Deleted rather than
     // zeroed, unlike `mightThisTurn` two fields up, and the difference is not
     // stylistic: 0 is a legal assignment, so zeroing would leave every unit the

@@ -3128,17 +3128,29 @@ function yetiQualifies(state: GameState, listener: Listener, event: GameEvent): 
   );
 }
 
-/** Did Blighted Battleaxe's wearer conquer this turn? — answered positionally,
- *  which is the divergence its entry above records: the engine records conquests
- *  per player, so "I conquered" is "I am standing where my controller conquered".
+/**
+ * Did Blighted Battleaxe's wearer conquer this turn?
  *
- *  A wearer in BASE has no `battlefieldId` and therefore never conquered, which
- *  is right for the one case that is unambiguous. */
+ * **Asked of the UNIT since 2026-08-26, and it used to be asked of the BOARD.**
+ * The old answer was "am I standing where my controller conquered", which the
+ * comment beside it defended as right for the unambiguous case — a wearer in base
+ * "therefore never conquered". 383.4.c.2.a says the opposite: a unit conquers by
+ * being "present at a Battlefield when a player gains control of it", which is a
+ * fact about a moment, not about where it stands at the end of the turn.
+ *
+ * Reported from playtesting: the axe killed a wearer that conquered a battlefield
+ * and was then pulled home, which is ordinary play rather than the narrow corner
+ * the divergence was filed as.
+ *
+ * `wearer.card` is the LIVE unit off the board (`wearerListener` builds it from
+ * `wearerOf`), so the flag `recordConquest` stamped at the moment is current here.
+ * A wearer that walked in AFTER the conquest is therefore also answered correctly
+ * now — the other half of the same divergence, and it was wrong in the generous
+ * direction.
+ */
 function wearerConqueredThisTurn(state: GameState, wearer: Listener): boolean {
-  return (
-    wearer.battlefieldId !== undefined &&
-    state.players[wearer.ownerIndex].conqueredBattlefieldsThisTurn.includes(wearer.battlefieldId)
-  );
+  void state;
+  return wearer.card.kind === "Unit" && wearer.card.conqueredThisTurn === true;
 }
 
 /** The tag Rumble - Hotheaded's trash-play reads. A constant rather than a bare
